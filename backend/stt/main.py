@@ -284,7 +284,7 @@ def _ct2_temperature() -> float:
 def _ct2_transcribe_kwargs(*, isolated_channel: bool = False) -> dict[str, Any]:
     lang = _ct2_language()
     if isolated_channel:
-        vad = os.getenv("STT_CHANNEL_VAD_FILTER", "false").lower() in ("1", "true", "yes")
+        vad = os.getenv("STT_CHANNEL_VAD_FILTER", "true").lower() in ("1", "true", "yes")
     else:
         vad = os.getenv("STT_VAD_FILTER", "true").lower() in ("1", "true", "yes")
 
@@ -463,7 +463,6 @@ def _transcribe_stereo_channels(
         agent_u = _transcribe_file(
             model, agent_path, "agent", engine, 0.0, isolated_channel=True
         )
-        merged = merge_stereo_utterances(client_u, agent_u, client_path, agent_path)
         merged = merge_stereo_utterances(client_u, agent_u, client_path, agent_path)
 
     mapping = os.getenv("STT_CLIENT_CHANNEL", "left")

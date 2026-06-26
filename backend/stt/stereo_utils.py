@@ -13,13 +13,6 @@ from stt.utterance_utils import group_words_to_utterances
 logger = logging.getLogger(__name__)
 
 
-def _env_float(name: str, default: float) -> float:
-    try:
-        return float(os.getenv(name, str(default)))
-    except ValueError:
-        return default
-
-
 def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
@@ -70,15 +63,18 @@ def merge_stereo_utterances(
     agent_audio_path: str,
 ) -> list[dict]:
     """
-    Re-assign (or drop) utterances using per-interval RMS on each channel.
-    Fixes cross-talk when both ASR passes hear the same speech.
+    Combine the two per-channel ASR passes into a single timeline.
+
+    For true stereo recordings the channel *is* the speaker, so the role is taken
+    from the channel of origin (client channel → client, agent channel → agent)
+    and is never re-decided by energy. RMS / text similarity are used only to drop
+    cross-channel bleed — the same words leaking into the other channel.
     """
     from pydub import AudioSegment
 
     client_seg = AudioSegment.from_file(client_audio_path)
     agent_seg = AudioSegment.from_file(agent_audio_path)
 
-    dominance = _env_float("STT_STEREO_DOMINANCE_RATIO", 1.15)
     min_rms = _env_int("STT_STEREO_MIN_RMS", 80)
     min_text_len = _env_int("STT_STEREO_MIN_TEXT_LEN", 2)
 
@@ -103,31 +99,37 @@ def merge_stereo_utterances(
         if end <= start:
             end = start + 0.15
 
-        c_rms = _slice_rms(client_seg, start, end)
-        a_rms = _slice_rms(agent_seg, start, end)
-        peak = max(c_rms, a_rms)
-        if peak < min_rms:
+        own_rms = _slice_rms(client_seg if source == "client" else agent_seg, start, end)
+        other_rms = _slice_rms(agent_seg if source == "client" else client_seg, start, end)
+
+        # No real speech in either channel here.
+        if own_rms < min_rms and other_rms < min_rms:
+            continue
+        # Source channel is silent while the other is clearly louder → this line is
+        # bleed of the other speaker leaking into the source channel. Drop it.
+        if own_rms < min_rms and other_rms > own_rms * 1.5:
             continue
 
-        if c_rms >= a_rms * dominance:
-            speaker = "client"
-        elif a_rms >= c_rms * dominance:
-            speaker = "agent"
-        else:
-            speaker = source
-
-        # Quiet channel picked up bleed from the loud side — drop
-        if speaker == "client" and c_rms < min_rms and a_rms > c_rms * 1.5:
-            continue
-        if speaker == "agent" and a_rms < min_rms and c_rms > a_rms * 1.5:
-            continue
-
-        if _is_duplicate_overlap(merged, text, start, end, speaker):
+        # Same words transcribed on both channels (bleed duplicate): keep only the
+        # copy from the louder channel, which is the real speaker. The survivor
+        # keeps its own channel's role — we never relabel genuine speech.
+        dup_idx = _find_cross_channel_duplicate(merged, text, start, end, source)
+        if dup_idx is not None:
+            prev = merged[dup_idx]
+            prev_seg = client_seg if prev["speaker"] == "client" else agent_seg
+            prev_rms = _slice_rms(prev_seg, float(prev["start"]), float(prev["end"]))
+            if own_rms > prev_rms:
+                merged[dup_idx] = {
+                    "speaker": source,
+                    "text": text,
+                    "start": round(start, 2),
+                    "end": round(end, 2),
+                }
             continue
 
         merged.append(
             {
-                "speaker": speaker,
+                "speaker": source,
                 "text": text,
                 "start": round(start, 2),
                 "end": round(end, 2),
@@ -136,7 +138,7 @@ def merge_stereo_utterances(
 
     merged.sort(key=lambda x: (x["start"], x["end"]))
     logger.info(
-        "Stereo merge: client_in=%s agent_in=%s out=%s",
+        "Stereo merge (channel-trusted): client_in=%s agent_in=%s out=%s",
         len(client_utterances),
         len(agent_utterances),
         len(merged),
@@ -151,15 +153,18 @@ def merge_stereo_words(
     agent_audio_path: str,
 ) -> list[dict]:
     """
-    Word-level stereo merge: each word gets RMS-based speaker assignment,
-    then consecutive same-speaker words are grouped into utterances.
+    Word-level stereo merge.
+
+    The speaker of every word is taken from its channel of origin; energy is used
+    only to drop cross-channel bleed (the same word leaking into the other
+    channel, kept from the louder side). Consecutive same-speaker words are then
+    grouped into utterances.
     """
     from pydub import AudioSegment
 
     client_seg = AudioSegment.from_file(client_audio_path)
     agent_seg = AudioSegment.from_file(agent_audio_path)
 
-    dominance = _env_float("STT_STEREO_DOMINANCE_RATIO", 1.15)
     min_rms = _env_int("STT_STEREO_MIN_RMS", 80)
 
     tagged: list[tuple[dict, str]] = []
@@ -171,6 +176,9 @@ def merge_stereo_words(
             tagged.append((w, "agent"))
     tagged.sort(key=lambda x: (float(x[0]["start"]), float(x[0]["end"])))
 
+    # Drop cross-channel bleed duplicates, keeping the louder channel's copy.
+    # Same-channel words are never deduped against each other (a speaker may repeat
+    # a word) — only the opposite channel is treated as potential bleed.
     deduped: list[tuple[dict, str]] = []
     for word, source in tagged:
         text = word["text"].strip()
@@ -180,8 +188,11 @@ def merge_stereo_words(
             end = start + 0.05
 
         replaced = False
-        for idx in range(len(deduped) - 1, max(-1, len(deduped) - 8), -1):
+        low = max(0, len(deduped) - 8)
+        for idx in range(len(deduped) - 1, low - 1, -1):
             prev_word, prev_source = deduped[idx]
+            if prev_source == source:
+                continue
             prev_start = float(prev_word["start"])
             prev_end = float(prev_word.get("end", prev_start))
             overlap = min(end, prev_end) - max(start, prev_start)
@@ -204,6 +215,7 @@ def merge_stereo_words(
         if not replaced:
             deduped.append((word, source))
 
+    # Role = channel of origin. RMS only drops bleed/silence, never relabels.
     labeled: list[dict] = []
     for word, source in deduped:
         text = word["text"].strip()
@@ -212,22 +224,12 @@ def merge_stereo_words(
         if end <= start:
             end = start + 0.05
 
-        c_rms = _slice_rms(client_seg, start, end)
-        a_rms = _slice_rms(agent_seg, start, end)
-        peak = max(c_rms, a_rms)
-        if peak < min_rms:
-            continue
+        own_rms = _slice_rms(client_seg if source == "client" else agent_seg, start, end)
+        other_rms = _slice_rms(agent_seg if source == "client" else client_seg, start, end)
 
-        if c_rms >= a_rms * dominance:
-            speaker = "client"
-        elif a_rms >= c_rms * dominance:
-            speaker = "agent"
-        else:
-            speaker = source
-
-        if speaker == "client" and c_rms < min_rms and a_rms > c_rms * 1.5:
+        if own_rms < min_rms and other_rms < min_rms:
             continue
-        if speaker == "agent" and a_rms < min_rms and c_rms > a_rms * 1.5:
+        if own_rms < min_rms and other_rms > own_rms * 1.5:
             continue
 
         labeled.append(
@@ -235,19 +237,46 @@ def merge_stereo_words(
                 "text": text,
                 "start": round(start, 2),
                 "end": round(end, 2),
-                "speaker": speaker,
+                "speaker": source,
             }
         )
 
     merged = group_words_to_utterances(labeled)
     logger.info(
-        "Stereo word merge: client_words=%s agent_words=%s labeled=%s utterances=%s",
+        "Stereo word merge (channel-trusted): client_words=%s agent_words=%s labeled=%s utterances=%s",
         len(client_words),
         len(agent_words),
         len(labeled),
         len(merged),
     )
     return merged
+
+
+def _find_cross_channel_duplicate(
+    existing: list[dict],
+    text: str,
+    start: float,
+    end: float,
+    speaker: str,
+) -> int | None:
+    """
+    Index of a recent opposite-channel line overlapping in time with similar text
+    (i.e. the same speech bled into both channels), or None if there is no match.
+    """
+    low = max(0, len(existing) - 8)
+    for idx in range(len(existing) - 1, low - 1, -1):
+        prev = existing[idx]
+        if prev["speaker"] == speaker:
+            continue
+        ov = min(end, float(prev["end"])) - max(start, float(prev["start"]))
+        if ov < 0.35:
+            continue
+        ratio = SequenceMatcher(None, text.lower(), (prev["text"] or "").lower()).ratio()
+        if ratio > 0.55:
+            return idx
+        if len(text) < 24 and ov > 0.5:
+            return idx
+    return None
 
 
 def _is_duplicate_overlap(
@@ -257,15 +286,5 @@ def _is_duplicate_overlap(
     end: float,
     speaker: str,
 ) -> bool:
-    """Skip near-duplicate lines from the other channel in the same time window."""
-    for prev in reversed(existing[-8:]):
-        if prev["speaker"] != speaker:
-            ov = min(end, float(prev["end"])) - max(start, float(prev["start"]))
-            if ov < 0.35:
-                continue
-            ratio = SequenceMatcher(None, text.lower(), (prev["text"] or "").lower()).ratio()
-            if ratio > 0.55:
-                return True
-            if len(text) < 24 and ov > 0.5:
-                return True
-    return False
+    """Backward-compatible bool wrapper around _find_cross_channel_duplicate."""
+    return _find_cross_channel_duplicate(existing, text, start, end, speaker) is not None
