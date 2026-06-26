@@ -1,0 +1,134 @@
+# Техническое задание: Сервис речевой аналитики для КЦ (Uzbekistan)
+
+
+## 1. Общая архитектура (Pipeline)
+
+Система работает как асинхронный конвейер:
+
+1. **Ingestion:** Скрипт-коллектор опрашивает Webitel API (`/api/calls/history`), находит новые звонки и скачивает аудио (`/api/storage/recordings/`).
+
+1. **Processing (STT):** Аудио передается в локальную модель ASR для получения текста.
+
+1. **Analysis (LLM):** Текст транскрипции отправляется в LLM (облачную или локальную) для оценки по критериям.
+
+1. **Storage:** Результаты (метаданные, текст, оценки) сохраняются в PostgreSQL.
+
+1. **Presentation:** Фронтенд отображает аналитику и записи.
+
+---
+
+## 2. Модели (ASR и LLM)
+
+### 2.1. Локальные ASR (STT) модели из huggingface
+
+*Для узбекского языка рекомендуются следующие варианты (запуск через Faster-Whisper):*
+
+1. **OvozifyLabs/whisper-small-uz-v1:** (Рекомендуется) Лучшая для смешанной речи (Uz/Ru).
+
+1. **Jonibek21/Zehnova-Uzbek-STT:** Самая высокая точность на чистом узбекском.
+
+1. **zafarrr/uzbek-stt-fastconformer-v1.2:** Максимальная скорость, низкое потребление ресурсов.
+
+### 2.2. LLM (Аналитика)
+
+- **Облачные (для тестов):**
+  - OpenAI `gpt-4o` (эталон качества).
+  - OpenAI `gpt-4o-mini` (оптимально по цене).
+
+- **Локальные (для продакшена):**
+  - **Gemma 4 ( E4B):** Лучшая логика и следование инструкциям.
+  - Qwen/Qwen3.5-4B **:** Лучшее понимание узбекского контекста и грамматики.
+
+---
+
+## 3. Схема базы данных (PostgreSQL)
+
+```sql
+-- Операторы
+CREATE TABLE operators (
+    id SERIAL PRIMARY KEY,
+    webitel_id VARCHAR(50) UNIQUE,
+    full_name VARCHAR(255),
+    team_name VARCHAR(100),
+    is_active BOOLEAN,
+);
+
+-- Звонки
+CREATE TABLE calls (
+    id SERIAL PRIMARY KEY,
+    call_uuid UUID UNIQUE NOT NULL,
+    operator_id INTEGER REFERENCES operators(id),
+    direction VARCHAR(20), -- inbound, outbound
+    duration INTEGER,
+    client_number VARCHAR(20),
+    audio_path TEXT,
+    call_timestamp TIMESTAMP WITH TIME ZONE,
+    status VARCHAR(20) DEFAULT 'pending' -- pending, downloading, transcribed, analyzed, error
+);
+
+-- Транскрипции
+CREATE TABLE transcriptions (
+    id SERIAL PRIMARY KEY,
+    call_id INTEGER REFERENCES calls(id) ON DELETE CASCADE,
+    full_text TEXT,
+    utterances JSONB, -- Массив: [{"speaker": "agent", "text": "...", "start": 0.0}]
+    model_name VARCHAR(50)
+);
+
+-- Результаты анализа LLM
+CREATE TABLE analysis_results (
+    id SERIAL PRIMARY KEY,
+    call_id INTEGER REFERENCES calls(id) ON DELETE CASCADE,
+    llm_model VARCHAR(50),
+    total_score INTEGER CHECK (total_score >= 0 AND total_score <= 100),
+    is_violation BOOLEAN DEFAULT FALSE,
+    summary TEXT,
+    criteria_results JSONB, -- Оценки по каждому пункту чек-листа
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+```
+
+---
+
+## 4. Интеграция с Webitel API
+
+### 4.1. Получение истории
+
+**Эндпоинт:** `GET /api/calls/history`**Параметры:** `created_at_from`, `created_at_to`, `size=100`.**Логика:** Сохраняем `uuid` звонка и `file_id` из массива `files`.
+
+### 4.2. Скачивание аудио
+
+**Эндпоинт:** `GET /api/storage/recordings/{file_id}/stream`**Авторизация:** Требует `access_token` в заголовке или параметрах.
+
+---
+
+## 5. Формат ответа LLM (JSON)
+
+Для корректного сохранения в БД, LLM должна возвращать JSON следующего вида:
+
+```json
+{
+  "total_score": 85,
+  "is_violation": false,
+  "summary": "Оператор помог клиенту, но забыл предложить доп. услугу.",
+  "criteria_results": {
+    "greeting": {"score": 10, "passed": true, "comment": "Стандартное приветствие"},
+    "politeness": {"score": 20, "passed": true, "comment": "Вежлив"},
+    "cross_sell": {"score": 0, "passed": false, "comment": "Не предложил акцию"}
+  }
+}
+```
+
+---
+
+## 6. Рекомендации по разработке в Cursor
+
+1. Используйте библиотеку `faster-whisper` для STT.
+
+1. Для локальных LLM используйте `ollama-python` или `vLLM` API.
+
+1. Для работы с БД используйте PostgreSQL или `Prisma`.
+
+1. Для фоновых задач (Ingestion/Processing) используйте `Celery` или `FastAPI BackgroundTasks`.
+
+Ссылка на API Webitel https://webitel.atlassian.net/wiki/spaces/WEP/pages/21307862/Webitel+API#5.1.-Подключение-к-базе-данных-Webitel

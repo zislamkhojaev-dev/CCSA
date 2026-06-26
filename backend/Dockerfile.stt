@@ -1,0 +1,38 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements-stt.txt .
+# CPU torch for pyannote + CT2 conversion; ASR inference uses faster-whisper (CT2)
+RUN pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir -r requirements-stt.txt
+
+COPY stt/ ./stt/
+COPY scripts/ ./scripts/
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+ENV STT_CT2_CACHE_DIR=/app/models
+
+# Model is mounted from ./models/… at runtime (see models/README.md).
+# To bake into image: docker compose build --build-arg SKIP_CT2_CONVERT=0 stt-service
+ARG SKIP_CT2_CONVERT=1
+RUN if [ "$SKIP_CT2_CONVERT" = "0" ]; then \
+      python scripts/convert_whisper_to_ct2.py \
+        --model OvozifyLabs/whisper-small-uz-v1 \
+        --output /app/models/OvozifyLabs--whisper-small-uz-v1-int8; \
+    else \
+      mkdir -p /app/models/OvozifyLabs--whisper-small-uz-v1-int8; \
+    fi
+
+ENV STT_CT2_UZ_MODEL_PATH=/app/models/OvozifyLabs--whisper-small-uz-v1-int8
+ENV STT_AUTO_CONVERT_CT2=false
+
+EXPOSE 8001
+
+CMD ["uvicorn", "stt.main:app", "--host", "0.0.0.0", "--port", "8001"]

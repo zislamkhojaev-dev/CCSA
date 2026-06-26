@@ -1,0 +1,5 @@
+# Wave-2 ASR models (install into .venv-benchmark; Python 3.9: --no-deps)
+qwen-asr>=0.0.6
+nagisa==0.2.11
+soynlp==0.0.493
+# qwen-asr pins accelerate==1.12.0 (needs Py3.10+); use existing accelerate in venv

@@ -1,0 +1,12 @@
+services:
+  stt-service:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      STT_DEVICE: cuda
+      STT_COMPUTE_TYPE: float16
