@@ -47,7 +47,7 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
   return (
     <div className="dash-modal-backdrop" onClick={onClose} role="presentation">
       <div className="card dash-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-labelledby="widget-editor-title">
-        <h2 id="widget-editor-title" style={{ marginBottom: "1rem" }}>
+        <h2 id="widget-editor-title" className="modal-title">
           Настройка виджета
         </h2>
         <form onSubmit={submit}>
@@ -87,7 +87,7 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
               <option value="large">Большой</option>
             </select>
           </div>
-          <div style={{ display: "flex", gap: "0.5rem", justifyContent: "flex-end", marginTop: "1rem" }}>
+          <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Отмена
             </button>

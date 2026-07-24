@@ -1,13 +1,21 @@
+import { GripVertical, Settings } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { api, scoreBadge } from "../../api/client";
 import type { DashboardWidget as WidgetConfig, WidgetMetricData } from "../../types/dashboard";
 
+import type { DashboardFiltersState } from "../../utils/dashboardFilters";
+import { buildDashboardQueryString, dashboardFiltersKey } from "../../utils/dashboardFilters";
+
 type Props = {
   widget: WidgetConfig;
-  periodDays: number;
+  filters: DashboardFiltersState;
   editing?: boolean;
   onEdit?: () => void;
   onRemove?: () => void;
+  dragHandleProps?: {
+    attributes: Record<string, unknown>;
+    listeners: Record<string, unknown> | undefined;
+  };
 };
 
 function BarChart({ series, unit }: { series: { label: string; value: number }[]; unit?: string }) {
@@ -85,11 +93,7 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: WidgetMetric
       return (
         <div>
           <p className="dash-kpi-value">{data.formatted ?? "—"}</p>
-          {data.stats && (
-            <p className="dash-widget-muted" style={{ marginTop: "0.35rem", fontSize: "0.8rem" }}>
-              Среднее за период
-            </p>
-          )}
+          {data.stats && <p className="dash-widget-sub">Среднее за период</p>}
         </div>
       );
     case "kpi":
@@ -105,28 +109,39 @@ function WidgetBody({ widget, data }: { widget: WidgetConfig; data: WidgetMetric
 
 export default function DashboardWidgetCard({
   widget,
-  periodDays,
+  filters,
   editing,
   onEdit,
   onRemove,
+  dragHandleProps,
 }: Props) {
+  const qs = buildDashboardQueryString(filters);
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["dashboard-metric", widget.metric, periodDays],
+    queryKey: ["dashboard-metric", widget.metric, ...dashboardFiltersKey(filters)],
     queryFn: () =>
-      api.get<WidgetMetricData>(
-        `/dashboard/metrics?metric=${encodeURIComponent(widget.metric)}&period_days=${periodDays}`
-      ),
+      api.get<WidgetMetricData>(`/dashboard/metrics?metric=${encodeURIComponent(widget.metric)}&${qs}`),
   });
 
   return (
-    <article className="card dash-widget">
+    <article className={`card dash-widget dash-widget--${widget.size}${editing ? " dash-widget--editing" : ""}`}>
       <header className="dash-widget-header">
-        <h3>{widget.title}</h3>
+        {editing && dragHandleProps && (
+          <button
+            type="button"
+            className="btn btn-secondary btn-icon dash-drag-handle"
+            {...dragHandleProps.attributes}
+            {...dragHandleProps.listeners}
+            aria-label="Перетащить"
+          >
+            <GripVertical size={14} />
+          </button>
+        )}
+        <h3 title={widget.title}>{widget.title}</h3>
         {editing && (
           <div className="dash-widget-actions">
             {onEdit && (
               <button type="button" className="btn btn-secondary btn-icon" onClick={onEdit} aria-label="Настроить">
-                ⚙
+                <Settings size={14} />
               </button>
             )}
             {onRemove && (
@@ -137,13 +152,11 @@ export default function DashboardWidgetCard({
           </div>
         )}
       </header>
-      {isLoading && <p className="dash-widget-muted">Загрузка...</p>}
-      {isError && (
-        <p className="dash-widget-muted" style={{ color: "var(--red)" }}>
-          Ошибка загрузки
-        </p>
-      )}
-      {data && <WidgetBody widget={widget} data={data} />}
+      <div className="dash-widget-body">
+        {isLoading && <p className="dash-widget-muted">Загрузка...</p>}
+        {isError && <p className="text-error">Ошибка загрузки</p>}
+        {data && <WidgetBody widget={widget} data={data} />}
+      </div>
     </article>
   );
 }

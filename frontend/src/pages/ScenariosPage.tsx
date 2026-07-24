@@ -31,7 +31,7 @@ export default function ScenariosPage() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
+      <div className="page-header">
         <h1 className="page-title">Сценарии и критерии</h1>
         <Link to="/scenarios/new" className="btn btn-primary">
           Новый сценарий

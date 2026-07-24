@@ -28,7 +28,7 @@ export default function OperatorsPage() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div className="page-header">
         <h1 className="page-title">Операторы</h1>
         <button type="button" className="btn btn-secondary" onClick={sync}>
           Синхронизировать с Webitel

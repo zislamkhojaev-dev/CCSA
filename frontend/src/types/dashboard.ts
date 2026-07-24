@@ -88,5 +88,5 @@ export function newWidgetId(): string {
 export function widgetGridSizeClass(size: WidgetSize): string {
   if (size === "large") return "dash-sortable-item--large";
   if (size === "medium") return "dash-sortable-item--medium";
-  return "";
+  return "dash-sortable-item--small";
 }

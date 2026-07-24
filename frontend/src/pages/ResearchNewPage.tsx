@@ -98,12 +98,10 @@ export default function ResearchNewPage() {
 
   return (
     <>
-      <div style={{ marginBottom: "1rem" }}>
-        <Link to="/research">← К списку</Link>
-      </div>
+      <Link to="/research" className="back-link">← К списку</Link>
       <h1 className="page-title">Новое исследование</h1>
 
-      <div className="card" style={{ padding: "1.25rem", maxWidth: 720 }}>
+      <div className="card card--narrow">
         <label className="form-label">
           Название
           <input
@@ -114,7 +112,7 @@ export default function ResearchNewPage() {
           />
         </label>
 
-        <label className="form-label" style={{ marginTop: "1rem" }}>
+        <label className="form-label" style={{ marginTop: "var(--space-4)" }}>
           Промпт для LLM
           <textarea
             className="form-input"
@@ -125,8 +123,8 @@ export default function ResearchNewPage() {
           />
         </label>
 
-        <h3 style={{ marginTop: "1.5rem", marginBottom: "0.75rem" }}>Фильтры звонков</h3>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "0.75rem" }}>
+        <h3 className="form-section-title">Фильтры звонков</h3>
+        <div className="filter-grid">
           <label className="form-label">
             Дата от
             <input type="date" className="form-input" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
@@ -152,9 +150,7 @@ export default function ResearchNewPage() {
             >
               <option value="">Все</option>
               {operators?.items.map((op) => (
-                <option key={op.id} value={op.id}>
-                  {op.full_name}
-                </option>
+                <option key={op.id} value={op.id}>{op.full_name}</option>
               ))}
             </select>
           </label>
@@ -163,9 +159,7 @@ export default function ResearchNewPage() {
             <select className="form-input" value={queue} onChange={(e) => setQueue(e.target.value)}>
               <option value="">Все</option>
               {filterOptions?.queues.map((q) => (
-                <option key={q} value={q}>
-                  {q}
-                </option>
+                <option key={q} value={q}>{q}</option>
               ))}
             </select>
           </label>
@@ -181,13 +175,8 @@ export default function ResearchNewPage() {
           </label>
           <label className="form-label">
             Оценка
-            <div style={{ display: "flex", gap: "0.35rem" }}>
-              <select
-                className="form-input"
-                style={{ flex: "0 0 4.5rem" }}
-                value={scoreOp}
-                onChange={(e) => setScoreOp(e.target.value as NumOp)}
-              >
+            <div className="filter-inline">
+              <select className="form-input" value={scoreOp} onChange={(e) => setScoreOp(e.target.value as NumOp)}>
                 <option value="">—</option>
                 <option value="eq">=</option>
                 <option value="lt">&lt;</option>
@@ -206,7 +195,7 @@ export default function ResearchNewPage() {
           </label>
         </div>
 
-        <div style={{ marginTop: "1.25rem", display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
+        <div className="btn-row" style={{ marginTop: "var(--space-5)" }}>
           <button type="button" className="btn btn-secondary" onClick={checkPreview}>
             Проверить выборку
           </button>
@@ -216,12 +205,12 @@ export default function ResearchNewPage() {
         </div>
 
         {preview && (
-          <p style={{ marginTop: "1rem" }}>
+          <p className="text-hint" style={{ marginTop: "var(--space-4)" }}>
             Найдено звонков с транскриптом: <strong>{preview.count}</strong> (макс. {preview.max_calls})
           </p>
         )}
-        {previewError && <p className="text-danger" style={{ marginTop: "0.75rem" }}>{previewError}</p>}
-        {submitError && <p className="text-danger" style={{ marginTop: "0.75rem" }}>{submitError}</p>}
+        {previewError && <p className="text-error">{previewError}</p>}
+        {submitError && <p className="text-error">{submitError}</p>}
       </div>
     </>
   );

@@ -82,94 +82,63 @@ export default function ResearchDetailPage() {
 
   return (
     <>
-      <div style={{ marginBottom: "1rem" }}>
-        <Link to="/research">← К списку</Link>
-      </div>
+      <Link to="/research" className="back-link">← К списку</Link>
       <h1 className="page-title">{data.title}</h1>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", flexWrap: "wrap", marginBottom: "0.35rem" }}>
-        <p className="text-muted" style={{ margin: 0 }}>
+      <div className="btn-row" style={{ marginBottom: "var(--space-3)" }}>
+        <p className="text-muted">
           {STATUS_LABEL[data.status] || data.status}
           {data.user_name ? ` · ${data.user_name}` : ""}
           {data.created_at ? ` · ${new Date(data.created_at).toLocaleString("ru")}` : ""}
         </p>
         {data.status === "completed" && data.report_markdown && (
           <>
-            <a
-              href={`/api/v1/research/${data.id}/export?format=md`}
-              className="btn btn-secondary"
-              download
-              style={{ padding: "0.35rem 0.75rem", fontSize: "0.8125rem" }}
-            >
+            <a href={`/api/v1/research/${data.id}/export?format=md`} className="btn btn-secondary btn-sm" download>
               Скачать Markdown
             </a>
-            <a
-              href={`/api/v1/research/${data.id}/export?format=json`}
-              className="btn btn-secondary"
-              download
-              style={{ padding: "0.35rem 0.75rem", fontSize: "0.8125rem" }}
-            >
+            <a href={`/api/v1/research/${data.id}/export?format=json`} className="btn btn-secondary btn-sm" download>
               Скачать JSON
             </a>
           </>
         )}
       </div>
 
-      <div className="card" style={{ padding: "1.25rem", marginBottom: "1rem" }}>
+      <div className="card" style={{ marginBottom: "var(--space-4)" }}>
         <h3>Параметры</h3>
-        <p>
-          <strong>Фильтры:</strong> {formatResearchFilters(data.filters_json)}
-        </p>
-        <p>
-          <strong>Звонков в выборке:</strong> {data.call_count || "—"}
-        </p>
-        {data.llm_model && (
-          <p>
-            <strong>Модель:</strong> {data.llm_model}
-          </p>
-        )}
-        <details style={{ marginTop: "0.75rem" }}>
+        <p><strong>Фильтры:</strong> {formatResearchFilters(data.filters_json)}</p>
+        <p><strong>Звонков в выборке:</strong> {data.call_count || "—"}</p>
+        {data.llm_model && <p><strong>Модель:</strong> {data.llm_model}</p>}
+        <details style={{ marginTop: "var(--space-3)" }}>
           <summary>Промпт</summary>
-          <pre style={{ whiteSpace: "pre-wrap", marginTop: "0.5rem" }}>{data.prompt}</pre>
+          <pre className="report-pre">{data.prompt}</pre>
         </details>
       </div>
 
       {isActive && (
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <p style={{ marginBottom: "0.75rem" }}>{progressText}</p>
+        <div className="card" style={{ marginBottom: "var(--space-4)" }}>
+          <p className="text-hint">{progressText}</p>
           {progress?.step === "map" && progress.batch != null && progress.batch_total != null && (
-            <div style={{ height: 8, background: "var(--md-surface-container-high)", borderRadius: 4, overflow: "hidden" }}>
-              <div
-                style={{
-                  width: `${Math.round((progress.batch / progress.batch_total) * 100)}%`,
-                  height: "100%",
-                  background: "var(--md-primary)",
-                  transition: "width 0.3s",
-                }}
-              />
+            <div className="progress">
+              <div className="progress__track">
+                <div
+                  className="progress__fill"
+                  style={{ width: `${Math.round((progress.batch / progress.batch_total) * 100)}%` }}
+                />
+              </div>
             </div>
           )}
         </div>
       )}
 
       {data.status === "error" && (
-        <div className="card" style={{ padding: "1.25rem", borderColor: "var(--danger)" }}>
-          <p className="text-danger">{data.error_message || "Ошибка анализа"}</p>
+        <div className="card card--error" style={{ marginBottom: "var(--space-4)" }}>
+          <p className="text-error">{data.error_message || "Ошибка анализа"}</p>
         </div>
       )}
 
       {data.status === "completed" && data.report_markdown && (
-        <div className="card" style={{ padding: "1.25rem" }}>
+        <div className="card">
           <h3>Отчёт</h3>
-          <pre
-            style={{
-              whiteSpace: "pre-wrap",
-              fontFamily: "inherit",
-              lineHeight: 1.6,
-              marginTop: "0.75rem",
-            }}
-          >
-            {data.report_markdown}
-          </pre>
+          <pre className="report-pre report-body">{data.report_markdown}</pre>
         </div>
       )}
     </>

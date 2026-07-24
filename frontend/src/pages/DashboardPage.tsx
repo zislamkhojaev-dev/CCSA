@@ -16,13 +16,15 @@ import {
   useSortable,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVertical, LayoutGrid, Pencil, Plus, RotateCcw, Save } from "lucide-react";
+import { LayoutGrid, Pencil, Plus, RotateCcw, Save } from "lucide-react";
+import { api } from "../api/client";
 import {
-  DASHBOARD_PERIOD_OPTIONS,
-  getDashboardPeriodDays,
-  setDashboardPeriodDays,
-  type DashboardPeriodDays,
-} from "../utils/dashboardPeriod";
+  downloadDashboardExport,
+  loadDashboardFilters,
+  saveDashboardFilters,
+  type DashboardFiltersState,
+} from "../utils/dashboardFilters";
+import DashboardFiltersPanel from "../components/dashboard/DashboardFiltersPanel";
 import DashboardWidgetCard from "../components/dashboard/DashboardWidget";
 import WidgetEditorModal from "../components/dashboard/WidgetEditorModal";
 import {
@@ -37,13 +39,13 @@ import {
 
 function SortableWidget({
   widget,
-  periodDays,
+  filters,
   editing,
   onEdit,
   onRemove,
 }: {
   widget: DashboardWidget;
-  periodDays: number;
+  filters: DashboardFiltersState;
   editing: boolean;
   onEdit: () => void;
   onRemove: () => void;
@@ -64,23 +66,13 @@ function SortableWidget({
       style={style}
       className={`dash-sortable-item ${widgetGridSizeClass(widget.size)}`.trim()}
     >
-      {editing && (
-        <button
-          type="button"
-          className="dash-drag-handle btn btn-secondary"
-          {...attributes}
-          {...listeners}
-          aria-label="Перетащить"
-        >
-          <GripVertical size={16} />
-        </button>
-      )}
       <DashboardWidgetCard
         widget={widget}
-        periodDays={periodDays}
+        filters={filters}
         editing={editing}
         onEdit={onEdit}
         onRemove={onRemove}
+        dragHandleProps={editing ? { attributes, listeners } : undefined}
       />
     </div>
   );
@@ -89,7 +81,8 @@ function SortableWidget({
 export default function DashboardPage() {
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
-  const [periodDays, setPeriodDays] = useState<DashboardPeriodDays>(getDashboardPeriodDays);
+  const [filters, setFilters] = useState<DashboardFiltersState>(loadDashboardFilters);
+  const [exporting, setExporting] = useState(false);
   const [widgets, setWidgets] = useState<DashboardWidget[]>(DEFAULT_LAYOUT.widgets);
   const [editorWidget, setEditorWidget] = useState<DashboardWidget | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -161,6 +154,23 @@ export default function DashboardPage() {
     markDirty(DEFAULT_LAYOUT.widgets);
   };
 
+  const handleFiltersChange = (next: DashboardFiltersState) => {
+    setFilters(next);
+    saveDashboardFilters(next);
+    qc.invalidateQueries({ queryKey: ["dashboard-metric"] });
+  };
+
+  const handleExport = async (format: "json" | "csv") => {
+    setExporting(true);
+    try {
+      await downloadDashboardExport(filters, format);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Ошибка экспорта");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const saveLayout = () => {
     saveMutation.mutate({ widgets });
   };
@@ -169,34 +179,21 @@ export default function DashboardPage() {
 
   return (
     <>
-      <div className="dash-page-header">
-        <h1 className="page-title" style={{ marginBottom: 0 }}>
-          <LayoutGrid size={22} style={{ verticalAlign: "middle", marginRight: "0.4rem" }} />
+      <div className="page-header dash-page-header">
+        <h1 className="page-title">
+          <LayoutGrid size={20} aria-hidden />
           Дашборд
         </h1>
-        <div className="dash-toolbar">
-          <div className="filter-field dash-period-field">
-            <label htmlFor="dash-period">Период</label>
-            <select
-              id="dash-period"
-              value={periodDays}
-              onChange={(e) => {
-                const days = Number(e.target.value) as DashboardPeriodDays;
-                setPeriodDays(days);
-                setDashboardPeriodDays(days);
-              }}
-            >
-              {DASHBOARD_PERIOD_OPTIONS.map((d) => (
-                <option key={d} value={d}>
-                  {d} дней
-                </option>
-              ))}
-            </select>
-          </div>
+        <div className="dash-toolbar-actions">
           {!editing ? (
-            <button type="button" className="btn btn-primary" onClick={() => setEditing(true)}>
+            <button
+              type="button"
+              className="btn btn-secondary btn-icon"
+              onClick={() => setEditing(true)}
+              aria-label="Редактировать дашборд"
+              title="Редактировать дашборд"
+            >
               <Pencil size={16} />
-              Конструктор
             </button>
           ) : (
             <>
@@ -234,10 +231,16 @@ export default function DashboardPage() {
         </div>
       </div>
 
+      <DashboardFiltersPanel
+        filters={filters}
+        onChange={handleFiltersChange}
+        onExport={handleExport}
+        exporting={exporting}
+      />
+
       {editing && (
-        <p className="dash-hint card" style={{ marginBottom: "1rem", padding: "0.75rem 1rem" }}>
-          Режим конструктора: перетаскивайте виджеты, добавляйте метрики по звонкам, оценкам, длительности и
-          операторам. Нажмите ⚙ для настройки.
+        <p className="dash-hint">
+          Режим конструктора: перетаскивайте виджеты за ⋮⋮, настраивайте через ⚙. Метрики — звонки, оценки, длительность, операторы.
         </p>
       )}
 
@@ -248,7 +251,7 @@ export default function DashboardPage() {
               <SortableWidget
                 key={w.id}
                 widget={w}
-                periodDays={periodDays}
+                filters={filters}
                 editing={editing}
                 onEdit={() => setEditorWidget(w)}
                 onRemove={() => removeWidget(w.id)}
@@ -271,13 +274,13 @@ export default function DashboardPage() {
       )}
 
       {editing && !editorWidget && (
-        <div className="card dash-catalog" style={{ marginTop: "1.5rem" }}>
-          <h3 style={{ marginBottom: "0.75rem" }}>Доступные метрики</h3>
+        <div className="card dash-catalog">
+          <h3>Доступные метрики</h3>
           <div className="dash-catalog-grid">
             {[...new Set(METRIC_OPTIONS.map((o) => o.category))].map((cat) => (
               <div key={cat}>
-                <strong style={{ fontSize: "0.85rem", color: "var(--muted)" }}>{cat}</strong>
-                <ul style={{ marginTop: "0.35rem", paddingLeft: "1.1rem", fontSize: "0.875rem" }}>
+                <div className="dash-catalog-category">{cat}</div>
+                <ul className="dash-catalog-list">
                   {METRIC_OPTIONS.filter((o) => o.category === cat).map((o) => (
                     <li key={o.value}>{o.label}</li>
                   ))}

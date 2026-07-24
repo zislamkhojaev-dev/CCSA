@@ -141,59 +141,50 @@ export default function CallDetailPage() {
 
       <div className="grid-3">
         <div className="card">
-          <p style={{ color: "var(--muted)", fontSize: "0.85rem" }}>ID: {data.id} · {data.call_uuid}</p>
-          <p><strong>Оператор:</strong> {data.operator_name || "—"}</p>
-          <p><strong>Клиент:</strong> {data.client_number || "—"}</p>
-          <p><strong>Дата:</strong> {data.call_timestamp ? new Date(data.call_timestamp).toLocaleString("ru") : "—"}</p>
-          <p><strong>Длительность:</strong> {data.duration ? `${data.duration} с` : "—"}</p>
-          <p>
-            <strong>Статус:</strong>{" "}
-            <span className={`badge ${processing ? "badge-yellow" : data.status === "error" ? "badge-red" : "badge-gray"}`}>
-              {callStatusLabel(data.status)}
-            </span>
-          </p>
+          <p className="meta-line">ID: {data.id} · {data.call_uuid}</p>
+          <div className="detail-list">
+            <p><strong>Оператор:</strong> {data.operator_name || "—"}</p>
+            <p><strong>Клиент:</strong> {data.client_number || "—"}</p>
+            <p><strong>Дата:</strong> {data.call_timestamp ? new Date(data.call_timestamp).toLocaleString("ru") : "—"}</p>
+            <p><strong>Длительность:</strong> {data.duration ? `${data.duration} с` : "—"}</p>
+            <p>
+              <strong>Статус:</strong>{" "}
+              <span className={`badge ${processing ? "badge-yellow" : data.status === "error" ? "badge-red" : "badge-gray"}`}>
+                {callStatusLabel(data.status)}
+              </span>
+            </p>
+          </div>
           {data.error_message && (
-            <p style={{ color: "var(--red)", fontSize: "0.85rem" }}><strong>Ошибка:</strong> {data.error_message}</p>
+            <p className="text-error"><strong>Ошибка:</strong> {data.error_message}</p>
           )}
           {trans && (
-            <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
+            <p className="text-hint">
               ASR: {trans.model_name || "—"}
               {trans.model_name === "mock" && " (модель не загружена — см. логи stt-service)"}
             </p>
           )}
-          <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
+          <hr className="divider" />
           <p className={`score-big ${scoreClass}`}>
             {analysis?.total_score != null ? `${analysis.total_score}/100` : "—"}
           </p>
           {analysis && !processing && (
             <>
-              <h4 style={{ marginTop: "1rem" }}>ИИ-суммаризация</h4>
+              <h4>ИИ-суммаризация</h4>
               <p>{analysis.summary}</p>
               <p><strong>Боли клиента:</strong> {analysis.client_pains || "—"}</p>
               <p><strong>Итог:</strong> {analysis.call_outcome || "—"}</p>
             </>
           )}
           {processing && (
-            <p style={{ color: "var(--muted)", fontSize: "0.875rem", marginTop: "1rem" }}>
-              Суммаризация и чек-лист обновятся после завершения обработки.
-            </p>
+            <p className="text-hint">Суммаризация и чек-лист обновятся после завершения обработки.</p>
           )}
-          <h4 style={{ marginTop: "1rem" }}>Чек-лист</h4>
+          <h4>Чек-лист</h4>
           <CriteriaChecklist criteria={analysis?.criteria_results} />
         </div>
 
         <div className="card">
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "0.75rem",
-              flexWrap: "wrap",
-              marginBottom: "0.5rem",
-            }}
-          >
-            <h4 style={{ margin: 0 }}>Расшифровка</h4>
+          <div className="card-header">
+            <h4>Расшифровка</h4>
             <button
               type="button"
               className="btn btn-secondary"
@@ -212,7 +203,7 @@ export default function CallDetailPage() {
               seekRef.current = seek;
             }}
           />
-          <div style={{ maxHeight: 480, overflowY: "auto", marginTop: "1rem" }}>
+          <div className="scroll-panel">
             <TranscriptList
               utterances={utterances}
               fullText={trans?.full_text}
@@ -235,50 +226,50 @@ export default function CallDetailPage() {
             className="btn btn-secondary"
             onClick={() => saveTags.mutate()}
             disabled={busy}
-            style={{ marginTop: "0.75rem" }}
           >
             Сохранить теги
           </button>
-          <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
+          <hr className="divider" />
           <h4>Комментарий супервизора</h4>
           <textarea
+            className="form-input"
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Ваш комментарий..."
-            style={{ width: "100%", minHeight: 80, margin: "0.5rem 0" }}
+            rows={4}
             disabled={busy}
           />
-          <button type="button" className="btn btn-primary" onClick={() => addNote.mutate()} disabled={!note.trim() || busy}>
+          <button type="button" className="btn btn-primary" style={{ marginTop: "var(--space-2)" }} onClick={() => addNote.mutate()} disabled={!note.trim() || busy}>
             Добавить
           </button>
           {data.notes.map((n) => (
-            <div key={n.id} style={{ marginTop: "0.75rem", fontSize: "0.875rem" }}>
+            <div key={n.id} className="note-item">
               <strong>{n.user_name}</strong> ({new Date(n.created_at).toLocaleString("ru")}): {n.text}
             </div>
           ))}
-          <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "1rem 0" }} />
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => retranscribe.mutate()}
-            disabled={busy}
-            style={{ marginBottom: "0.5rem", width: "100%" }}
-          >
-            {retranscribe.isPending || data.status === "transcribing"
-              ? "Распознавание ASR…"
-              : "Повторное распознавание (ASR)"}
-          </button>
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => reanalyze.mutate()}
-            disabled={busy}
-            style={{ width: "100%" }}
-          >
-            {reanalyze.isPending || data.status === "analyzing"
-              ? "Анализ LLM…"
-              : "Повторный анализ (LLM)"}
-          </button>
+          <hr className="divider" />
+          <div className="btn-stack">
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => retranscribe.mutate()}
+              disabled={busy}
+            >
+              {retranscribe.isPending || data.status === "transcribing"
+                ? "Распознавание ASR…"
+                : "Повторное распознавание (ASR)"}
+            </button>
+            <button
+              type="button"
+              className="btn btn-secondary"
+              onClick={() => reanalyze.mutate()}
+              disabled={busy}
+            >
+              {reanalyze.isPending || data.status === "analyzing"
+                ? "Анализ LLM…"
+                : "Повторный анализ (LLM)"}
+            </button>
+          </div>
         </div>
       </div>
     </>

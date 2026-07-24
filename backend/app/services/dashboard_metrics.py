@@ -1,6 +1,6 @@
 """Aggregate call, score, duration, and operator metrics for dashboard widgets."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import AnalysisResult, Call, Operator, Transcription
 from app.schemas.dashboard import MetricSeriesPoint, WidgetMetricResponse
 from app.services.call_utils import duration_seconds_from_utterances
+from app.services.call_query import effective_call_timestamp
+from app.services.dashboard_filters import DashboardFilters, apply_call_filters, apply_call_filters_extra
 
 METRIC_LABELS: dict[str, str] = {
     "calls_total": "Всего звонков",
@@ -31,10 +33,6 @@ METRIC_LABELS: dict[str, str] = {
 }
 
 
-def _period_start(days: int) -> datetime:
-    return datetime.now(UTC) - timedelta(days=max(1, days))
-
-
 def _format_duration(seconds: float | None) -> str:
     if seconds is None:
         return "—"
@@ -48,7 +46,7 @@ def _format_duration(seconds: float | None) -> str:
     return f"{sec}с"
 
 
-async def _call_durations_in_period(db: AsyncSession, since: datetime) -> list[int]:
+async def _call_durations_in_period(db: AsyncSession, filters: DashboardFilters) -> list[int]:
     """Collect effective durations (Call.duration or latest transcription utterances)."""
     latest_trans = (
         select(
@@ -58,12 +56,14 @@ async def _call_durations_in_period(db: AsyncSession, since: datetime) -> list[i
         .group_by(Transcription.call_id)
         .subquery()
     )
-    result = await db.execute(
+    q = (
         select(Call.duration, Transcription.utterances)
+        .select_from(Call)
         .outerjoin(latest_trans, latest_trans.c.call_id == Call.id)
         .outerjoin(Transcription, Transcription.id == latest_trans.c.transcription_id)
-        .where(Call.created_at >= since)
     )
+    q = apply_call_filters(q, filters)
+    result = await db.execute(q)
     durations: list[int] = []
     for call_duration, utterances in result.all():
         if call_duration is not None:
@@ -76,65 +76,69 @@ async def _call_durations_in_period(db: AsyncSession, since: datetime) -> list[i
 
 
 async def fetch_widget_metric(
-    db: AsyncSession, metric: str, period_days: int = 30
+    db: AsyncSession, metric: str, filters: DashboardFilters | None = None
 ) -> WidgetMetricResponse:
+    filters = filters or DashboardFilters()
     label = METRIC_LABELS.get(metric, metric)
-    since = _period_start(period_days)
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
     if metric == "calls_total":
-        val = await db.scalar(
-            select(func.count()).select_from(Call).where(Call.created_at >= since)
-        ) or 0
+        q = select(func.count()).select_from(Call)
+        q = apply_call_filters(q, filters)
+        val = await db.scalar(q) or 0
         return WidgetMetricResponse(
             metric=metric, kind="scalar", label=label, value=float(val), formatted=str(val), unit="шт"
         )
 
     if metric == "calls_today":
-        val = await db.scalar(
-            select(func.count()).select_from(Call).where(Call.created_at >= today_start)
-        ) or 0
+        q = select(func.count()).select_from(Call)
+        q = apply_call_filters_extra(q, filters, since=today_start)
+        val = await db.scalar(q) or 0
         return WidgetMetricResponse(
             metric=metric, kind="scalar", label=label, value=float(val), formatted=str(val), unit="шт"
         )
 
     if metric == "calls_analyzed":
-        val = await db.scalar(
-            select(func.count())
-            .select_from(Call)
-            .where(Call.status == "analyzed", Call.created_at >= since)
-        ) or 0
+        q = select(func.count()).select_from(Call).where(Call.status == "analyzed")
+        q = apply_call_filters(q, filters)
+        val = await db.scalar(q) or 0
         return WidgetMetricResponse(
             metric=metric, kind="scalar", label=label, value=float(val), formatted=str(val), unit="шт"
         )
 
     if metric == "calls_pending":
-        val = await db.scalar(
+        q = (
             select(func.count())
             .select_from(Call)
-            .where(Call.status.not_in(["analyzed", "error"]), Call.created_at >= since)
-        ) or 0
+            .where(Call.status.not_in(["analyzed", "error"]))
+        )
+        q = apply_call_filters(q, filters)
+        val = await db.scalar(q) or 0
         return WidgetMetricResponse(
             metric=metric, kind="scalar", label=label, value=float(val), formatted=str(val), unit="шт"
         )
 
     if metric == "violations_count":
-        val = await db.scalar(
+        q = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.is_violation.is_(True), Call.created_at >= since)
-        ) or 0
+            .where(AnalysisResult.is_violation.is_(True))
+        )
+        q = apply_call_filters(q, filters)
+        val = await db.scalar(q) or 0
         return WidgetMetricResponse(
             metric=metric, kind="scalar", label=label, value=float(val), formatted=str(val), unit="шт"
         )
 
     if metric == "score_avg":
-        avg = await db.scalar(
+        q = (
             select(func.avg(AnalysisResult.total_score))
+            .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(Call.created_at >= since)
         )
+        q = apply_call_filters(q, filters)
+        avg = await db.scalar(q)
         val = round(float(avg), 1) if avg else None
         return WidgetMetricResponse(
             metric=metric,
@@ -147,7 +151,7 @@ async def fetch_widget_metric(
         )
 
     if metric == "duration_avg":
-        durations = await _call_durations_in_period(db, since)
+        durations = await _call_durations_in_period(db, filters)
         val = round(sum(durations) / len(durations), 1) if durations else None
         return WidgetMetricResponse(
             metric=metric,
@@ -160,7 +164,7 @@ async def fetch_widget_metric(
         )
 
     if metric == "duration_total":
-        durations = await _call_durations_in_period(db, since)
+        durations = await _call_durations_in_period(db, filters)
         val = float(sum(durations)) if durations else 0
         return WidgetMetricResponse(
             metric=metric,
@@ -172,14 +176,12 @@ async def fetch_widget_metric(
         )
 
     if metric == "percent_analyzed":
-        total = await db.scalar(
-            select(func.count()).select_from(Call).where(Call.created_at >= since)
-        ) or 0
-        analyzed = await db.scalar(
-            select(func.count())
-            .select_from(Call)
-            .where(Call.status == "analyzed", Call.created_at >= since)
-        ) or 0
+        q_total = select(func.count()).select_from(Call)
+        q_total = apply_call_filters(q_total, filters)
+        total = await db.scalar(q_total) or 0
+        q_analyzed = select(func.count()).select_from(Call).where(Call.status == "analyzed")
+        q_analyzed = apply_call_filters(q_analyzed, filters)
+        analyzed = await db.scalar(q_analyzed) or 0
         pct = round(analyzed / total * 100, 1) if total else 0
         return WidgetMetricResponse(
             metric=metric,
@@ -192,18 +194,21 @@ async def fetch_widget_metric(
         )
 
     if metric == "percent_violations":
-        analyzed = await db.scalar(
+        q_analyzed = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(Call.created_at >= since)
-        ) or 0
-        violations = await db.scalar(
+        )
+        q_analyzed = apply_call_filters(q_analyzed, filters)
+        analyzed = await db.scalar(q_analyzed) or 0
+        q_violations = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.is_violation.is_(True), Call.created_at >= since)
-        ) or 0
+            .where(AnalysisResult.is_violation.is_(True))
+        )
+        q_violations = apply_call_filters(q_violations, filters)
+        violations = await db.scalar(q_violations) or 0
         pct = round(violations / analyzed * 100, 1) if analyzed else 0
         return WidgetMetricResponse(
             metric=metric,
@@ -216,18 +221,21 @@ async def fetch_widget_metric(
         )
 
     if metric == "percent_high_score":
-        total = await db.scalar(
+        q_total = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(Call.created_at >= since)
-        ) or 0
-        high = await db.scalar(
+        )
+        q_total = apply_call_filters(q_total, filters)
+        total = await db.scalar(q_total) or 0
+        q_high = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score >= 80, Call.created_at >= since)
-        ) or 0
+            .where(AnalysisResult.total_score >= 80)
+        )
+        q_high = apply_call_filters(q_high, filters)
+        high = await db.scalar(q_high) or 0
         pct = round(high / total * 100, 1) if total else 0
         return WidgetMetricResponse(
             metric=metric,
@@ -240,28 +248,33 @@ async def fetch_widget_metric(
         )
 
     if metric == "score_distribution":
-        green = await db.scalar(
+        q_green = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score >= 80, Call.created_at >= since)
-        ) or 0
-        yellow = await db.scalar(
+            .where(AnalysisResult.total_score >= 80)
+        )
+        q_green = apply_call_filters(q_green, filters)
+        green = await db.scalar(q_green) or 0
+        q_yellow = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
             .where(
                 AnalysisResult.total_score >= 50,
                 AnalysisResult.total_score < 80,
-                Call.created_at >= since,
             )
-        ) or 0
-        red = await db.scalar(
+        )
+        q_yellow = apply_call_filters(q_yellow, filters)
+        yellow = await db.scalar(q_yellow) or 0
+        q_red = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score < 50, Call.created_at >= since)
-        ) or 0
+            .where(AnalysisResult.total_score < 50)
+        )
+        q_red = apply_call_filters(q_red, filters)
+        red = await db.scalar(q_red) or 0
         series = [
             MetricSeriesPoint(label=">80%", value=float(green)),
             MetricSeriesPoint(label="50-80%", value=float(yellow)),
@@ -276,7 +289,7 @@ async def fetch_widget_metric(
             ("3–5 мин", 180, 300),
             ("> 5 мин", 300, None),
         ]
-        durations = await _call_durations_in_period(db, since)
+        durations = await _call_durations_in_period(db, filters)
         series: list[MetricSeriesPoint] = []
         for lbl, lo, hi in buckets:
             cnt = sum(1 for d in durations if d >= lo and (hi is None or d < hi))
@@ -284,13 +297,11 @@ async def fetch_widget_metric(
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
 
     if metric == "calls_by_day":
-        day_col = cast(func.date_trunc("day", Call.created_at), Date)
-        result = await db.execute(
-            select(day_col.label("day"), func.count().label("cnt"))
-            .where(Call.created_at >= since)
-            .group_by(day_col)
-            .order_by(day_col)
-        )
+        day_col = cast(func.date_trunc("day", effective_call_timestamp()), Date)
+        q = select(day_col.label("day"), func.count().label("cnt")).select_from(Call)
+        q = apply_call_filters(q, filters)
+        q = q.group_by(day_col).order_by(day_col)
+        result = await db.execute(q)
         series = [
             MetricSeriesPoint(label=row.day.strftime("%d.%m") if row.day else "?", value=float(row.cnt))
             for row in result.all()
@@ -298,28 +309,32 @@ async def fetch_widget_metric(
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
 
     if metric == "operators_by_calls":
-        result = await db.execute(
+        q = (
             select(Operator.full_name, func.count(Call.id).label("cnt"))
+            .select_from(Operator)
             .join(Call, Call.operator_id == Operator.id)
-            .where(Call.created_at >= since)
-            .group_by(Operator.id, Operator.full_name)
-            .order_by(func.count(Call.id).desc())
-            .limit(8)
         )
+        q = apply_call_filters(q, filters)
+        q = q.group_by(Operator.id, Operator.full_name).order_by(func.count(Call.id).desc()).limit(8)
+        result = await db.execute(q)
         series = [MetricSeriesPoint(label=row.full_name, value=float(row.cnt or 0)) for row in result.all()]
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
 
     if metric == "operators_by_score":
-        result = await db.execute(
+        q = (
             select(Operator.full_name, func.avg(AnalysisResult.total_score).label("avg"))
+            .select_from(Operator)
             .join(Call, Call.operator_id == Operator.id)
             .join(AnalysisResult, AnalysisResult.call_id == Call.id)
-            .where(Call.created_at >= since)
-            .group_by(Operator.id, Operator.full_name)
+        )
+        q = apply_call_filters(q, filters)
+        q = (
+            q.group_by(Operator.id, Operator.full_name)
             .having(func.count(AnalysisResult.id) > 0)
             .order_by(func.avg(AnalysisResult.total_score).desc())
             .limit(8)
         )
+        result = await db.execute(q)
         series = [
             MetricSeriesPoint(
                 label=row.full_name,
@@ -330,14 +345,12 @@ async def fetch_widget_metric(
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series, unit="%")
 
     if metric == "comparison_calls_analyzed":
-        total = await db.scalar(
-            select(func.count()).select_from(Call).where(Call.created_at >= since)
-        ) or 0
-        analyzed = await db.scalar(
-            select(func.count())
-            .select_from(Call)
-            .where(Call.status == "analyzed", Call.created_at >= since)
-        ) or 0
+        q_total = select(func.count()).select_from(Call)
+        q_total = apply_call_filters(q_total, filters)
+        total = await db.scalar(q_total) or 0
+        q_analyzed = select(func.count()).select_from(Call).where(Call.status == "analyzed")
+        q_analyzed = apply_call_filters(q_analyzed, filters)
+        analyzed = await db.scalar(q_analyzed) or 0
         return WidgetMetricResponse(
             metric=metric,
             kind="comparison",
@@ -354,17 +367,21 @@ async def fetch_widget_metric(
         )
 
     if metric == "comparison_score_violations":
-        avg = await db.scalar(
+        q_avg = (
             select(func.avg(AnalysisResult.total_score))
+            .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(Call.created_at >= since)
         )
-        violations = await db.scalar(
+        q_avg = apply_call_filters(q_avg, filters)
+        avg = await db.scalar(q_avg)
+        q_violations = (
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.is_violation.is_(True), Call.created_at >= since)
-        ) or 0
+            .where(AnalysisResult.is_violation.is_(True))
+        )
+        q_violations = apply_call_filters(q_violations, filters)
+        violations = await db.scalar(q_violations) or 0
         avg_val = round(float(avg), 1) if avg else 0
         return WidgetMetricResponse(
             metric=metric,

@@ -10,6 +10,12 @@ type Props = {
   height?: number;
 };
 
+function readCssColor(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
+}
+
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.floor(seconds % 60);
@@ -51,9 +57,9 @@ export default function AudioWaveform({
 
     const ws = WaveSurfer.create({
       container: containerRef.current,
-      waveColor: "#64748b",
-      progressColor: "#3b82f6",
-      cursorColor: "#3b82f6",
+      waveColor: readCssColor("--muted", "#5c6169"),
+      progressColor: readCssColor("--primary", "#2d2f33"),
+      cursorColor: readCssColor("--primary", "#2d2f33"),
       height,
       url: audioUrl,
       fetchParams: { credentials: "include" },
@@ -94,11 +100,7 @@ export default function AudioWaveform({
   );
 
   if (!audioUrl) {
-    return (
-      <p style={{ fontSize: "0.85rem", color: "var(--muted)" }}>
-        Аудиозапись недоступна для воспроизведения.
-      </p>
-    );
+    return <p className="text-muted text-sm">Аудиозапись недоступна для воспроизведения.</p>;
   }
 
   return (

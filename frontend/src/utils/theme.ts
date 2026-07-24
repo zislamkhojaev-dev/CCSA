@@ -15,9 +15,9 @@ export function applyTheme(theme: Theme): void {
   document.documentElement.setAttribute("data-theme", theme);
 }
 
-/** Call before React render to avoid theme flash. */
+/** Call before React render to avoid theme flash. Defaults to light. */
 export function initTheme(): Theme {
-  const theme = getStoredTheme() ?? getSystemTheme();
+  const theme = getStoredTheme() ?? "light";
   applyTheme(theme);
   return theme;
 }

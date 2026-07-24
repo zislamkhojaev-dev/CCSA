@@ -2,6 +2,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -16,6 +17,13 @@ from app.schemas.dashboard import (
     ScoreBucket,
     WidgetMetricResponse,
 )
+from app.services.dashboard_export import (
+    build_dashboard_export,
+    dashboard_export_filename,
+    dashboard_export_json_bytes,
+    dashboard_export_to_csv,
+)
+from app.services.dashboard_filters import parse_dashboard_filters
 from app.services.dashboard_metrics import AVAILABLE_METRICS, fetch_widget_metric
 from app.services.settings_store import get_setting, set_setting
 
@@ -49,6 +57,17 @@ DEFAULT_WIDGETS = [
 
 def _layout_key(user_id: int) -> str:
     return f"dashboard_layout_user_{user_id}"
+
+
+async def _load_user_widgets(db: AsyncSession, user_id: int) -> list[DashboardWidgetConfig]:
+    raw = await get_setting(db, _layout_key(user_id), "")
+    if not raw:
+        return DEFAULT_WIDGETS
+    try:
+        data = json.loads(raw)
+        return [DashboardWidgetConfig(**w) for w in data.get("widgets", [])]
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return DEFAULT_WIDGETS
 
 
 @router.get("/summary", response_model=DashboardSummary)
@@ -103,12 +122,60 @@ async def list_metrics(_: User = Depends(get_current_user)):
 async def widget_metric(
     metric: str = Query(..., description="Metric key"),
     period_days: int = Query(30, ge=1, le=365),
+    date_from: str | None = Query(None, description="ISO date YYYY-MM-DD"),
+    date_to: str | None = Query(None, description="ISO date YYYY-MM-DD"),
+    direction: str | None = Query(None, description="inbound | outbound"),
+    operator_ids: list[int] | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
     if metric not in AVAILABLE_METRICS:
         raise HTTPException(status_code=400, detail=f"Unknown metric: {metric}")
-    return await fetch_widget_metric(db, metric, period_days)
+    filters = parse_dashboard_filters(
+        period_days=period_days,
+        date_from=date_from,
+        date_to=date_to,
+        direction=direction,
+        operator_ids=operator_ids,
+    )
+    return await fetch_widget_metric(db, metric, filters)
+
+
+@router.get("/export")
+async def export_dashboard(
+    format: str = Query("json", pattern="^(json|csv)$"),
+    period_days: int = Query(30, ge=1, le=365),
+    date_from: str | None = Query(None, description="ISO date YYYY-MM-DD"),
+    date_to: str | None = Query(None, description="ISO date YYYY-MM-DD"),
+    direction: str | None = Query(None, description="inbound | outbound"),
+    operator_ids: list[int] | None = Query(None),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    filters = parse_dashboard_filters(
+        period_days=period_days,
+        date_from=date_from,
+        date_to=date_to,
+        direction=direction,
+        operator_ids=operator_ids,
+    )
+    widgets = await _load_user_widgets(db, user.id)
+    payload = await build_dashboard_export(db, widgets, filters)
+    filename = dashboard_export_filename(ext=format)
+
+    if format == "csv":
+        content = "\ufeff" + dashboard_export_to_csv(payload)
+        return Response(
+            content=content,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    return Response(
+        content=dashboard_export_json_bytes(payload),
+        media_type="application/json; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/layout", response_model=DashboardLayoutOut)
@@ -116,14 +183,7 @@ async def get_layout(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    raw = await get_setting(db, _layout_key(user.id), "")
-    if not raw:
-        return DashboardLayoutOut(widgets=DEFAULT_WIDGETS)
-    try:
-        data = json.loads(raw)
-        return DashboardLayoutOut(widgets=[DashboardWidgetConfig(**w) for w in data.get("widgets", [])])
-    except (json.JSONDecodeError, TypeError, ValueError):
-        return DashboardLayoutOut(widgets=DEFAULT_WIDGETS)
+    return DashboardLayoutOut(widgets=await _load_user_widgets(db, user.id))
 
 
 @router.put("/layout", response_model=DashboardLayoutOut)

@@ -105,7 +105,7 @@ function ModelsTab() {
 
   return (
   <>
-    <div className="card" style={{ marginBottom: "5rem" }}>
+    <div className="card settings-tab-content">
       <h3>ASR (распознавание речи)</h3>
       <div className="form-group">
         <label>Провайдер</label>
@@ -132,12 +132,12 @@ function ModelsTab() {
               <option key={m.value} value={m.value}>{m.label}</option>
             ))}
           </select>
-          <p style={{ marginTop: "0.5rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+          <p className="form-hint">
             Pyannote требует HF_TOKEN и лицензии на pyannote/speaker-diarization-3.1. Без токена — fallback на стерео-каналы или моно.
           </p>
         </div>
       )}
-      <h4 style={{ marginTop: "1.5rem" }}>Производительность ASR</h4>
+      <h4 className="form-section-title">Производительность ASR</h4>
       <div className="form-group">
         <label>Макс. параллельных запросов к STT</label>
         <input
@@ -150,7 +150,7 @@ function ModelsTab() {
             setDirty(true);
           }}
         />
-        <p style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+        <p className="form-hint">
           Сколько распознаваний одновременно (через Redis). На CPU рекомендуется 1.
         </p>
       </div>
@@ -167,7 +167,7 @@ function ModelsTab() {
           }}
         />
       </div>
-      <label style={{ display: "flex", gap: "0.5rem", marginTop: "0.5rem" }}>
+      <label className="checkbox-row">
         <input
           type="checkbox"
           checked={form.playground_sequential}
@@ -175,7 +175,7 @@ function ModelsTab() {
         />
         Плейграунд: обрабатывать файлы по одному (рекомендуется)
       </label>
-      <div className="form-group" style={{ marginTop: "1rem" }}>
+      <div className="form-group">
         <label>Параллельность Celery worker</label>
         <input
           type="number"
@@ -187,7 +187,7 @@ function ModelsTab() {
             setDirty(true);
           }}
         />
-        <p style={{ marginTop: "0.35rem", fontSize: "0.85rem", color: "var(--muted)" }}>
+        <p className="form-hint">
           Применяется после перезапуска: задайте в .env{" "}
           <code>CELERY_WORKER_CONCURRENCY=…</code> и выполните{" "}
           <code>docker compose restart celery-worker</code>.
@@ -205,7 +205,7 @@ function ModelsTab() {
           </div>
         </>
       )}
-      <h3 style={{ marginTop: "2rem" }}>LLM (аналитика)</h3>
+      <h3 className="form-section-title">LLM (аналитика)</h3>
       <div className="form-group">
         <label>Провайдер</label>
         <select value={form.llm_provider} onChange={(e) => { setForm({ ...form, llm_provider: e.target.value }); setDirty(true); }}>
@@ -236,7 +236,7 @@ function ModelsTab() {
           <input value={form.ollama_base_url} onChange={(e) => { setForm({ ...form, ollama_base_url: e.target.value }); setDirty(true); }} />
         </div>
       )}
-      <label style={{ display: "flex", gap: "0.5rem", marginTop: "1rem" }}>
+      <label className="checkbox-row">
         <input type="checkbox" checked={form.pii_anonymization} onChange={(e) => { setForm({ ...form, pii_anonymization: e.target.checked }); setDirty(true); }} />
         Включить анонимизацию данных перед отправкой в облачные LLM ([PII_DATA])
       </label>
@@ -295,13 +295,13 @@ function WebitelTab() {
 
   return (
   <>
-    <div className="grid-2" style={{ marginBottom: "5rem" }}>
+    <div className="grid-2 settings-tab-content">
       <div className="card">
         <h3>Webitel API</h3>
         <div className="form-group"><label>Хост / URL</label><input value={wt.url} onChange={(e) => { setWt({ ...wt, url: e.target.value }); setDirty(true); }} placeholder="https://webitel.example" /></div>
         <div className="form-group"><label>Access Token</label><input type="password" onChange={(e) => { setWt({ ...wt, token: e.target.value }); setDirty(true); }} /></div>
         <button type="button" className="btn btn-secondary" onClick={testApi}>Проверить соединение</button>
-        <h4 style={{ marginTop: "1.5rem" }}>Расписание синхронизации</h4>
+        <h4 className="subsection-title">Расписание синхронизации</h4>
         <div className="form-group">
           <label>Частота</label>
           <select value={wt.freq} onChange={(e) => { setWt({ ...wt, freq: e.target.value }); setDirty(true); }}>
@@ -309,9 +309,10 @@ function WebitelTab() {
             <option value="daily">Раз в сутки (09:00)</option>
           </select>
         </div>
-        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+        <div className="checkbox-group">
           {WEEKDAYS.map((d) => (
-            <label key={d.v}><input type="checkbox" checked={wt.days.includes(d.v)} onChange={(e) => {
+            <label key={d.v} className="checkbox-row">
+              <input type="checkbox" checked={wt.days.includes(d.v)} onChange={(e) => {
               setWt({ ...wt, days: e.target.checked ? [...wt.days, d.v] : wt.days.filter((x) => x !== d.v) });
               setDirty(true);
             }} /> {d.l}</label>
@@ -365,16 +366,17 @@ function AutomationTab() {
 
   return (
   <>
-    <div className="card" style={{ marginBottom: "5rem" }}>
+    <div className="card settings-tab-content">
       <h3>Автоматизация оценки</h3>
-      <p style={{ color: "var(--muted)", marginBottom: "1rem" }}>Автоматический скоринг поступающих звонков в заданном окне.</p>
+      <p className="text-muted">Автоматический скоринг поступающих звонков в заданном окне.</p>
       <div className="form-group">
         <label>Размер батча</label>
         <input type="number" min={1} max={100} value={batch} onChange={(e) => { setBatch(Number(e.target.value)); setDirty(true); }} />
       </div>
-      <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap", marginBottom: "1rem" }}>
+      <div className="checkbox-group">
         {WEEKDAYS.map((d) => (
-          <label key={d.v}><input type="checkbox" checked={days.includes(d.v)} onChange={(e) => {
+          <label key={d.v} className="checkbox-row">
+            <input type="checkbox" checked={days.includes(d.v)} onChange={(e) => {
             setDays(e.target.checked ? [...days, d.v] : days.filter((x) => x !== d.v));
             setDirty(true);
           }} /> {d.l}</label>
@@ -433,7 +435,7 @@ function AdminTab() {
               <td>
                 {editId === u.id ? (
                   <>
-                    <input type="password" placeholder="Новый пароль" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} style={{ width: 120 }} />
+                    <input type="password" className="form-input" placeholder="Новый пароль" value={editPassword} onChange={(e) => setEditPassword(e.target.value)} style={{ width: 120 }} />
                     <button type="button" className="btn btn-primary" onClick={() => resetPassword(u.id)}>OK</button>
                   </>
                 ) : (
@@ -444,13 +446,13 @@ function AdminTab() {
           ))}
         </tbody>
       </table>
-      <h4 style={{ marginTop: "1.5rem" }}>Добавить супервизора</h4>
+      <h4 className="subsection-title">Добавить супервизора</h4>
       <div className="grid-2">
-        <input placeholder="Логин" value={login} onChange={(e) => setLogin(e.target.value)} />
-        <input placeholder="Имя" value={fullName} onChange={(e) => setFullName(e.target.value)} />
-        <input type="password" placeholder="Пароль" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <input className="form-input" placeholder="Логин" value={login} onChange={(e) => setLogin(e.target.value)} />
+        <input className="form-input" placeholder="Имя" value={fullName} onChange={(e) => setFullName(e.target.value)} />
+        <input className="form-input" type="password" placeholder="Пароль" value={password} onChange={(e) => setPassword(e.target.value)} />
       </div>
-      <button type="button" className="btn btn-primary" style={{ marginTop: "1rem" }} onClick={add}>Добавить</button>
+      <button type="button" className="btn btn-primary" style={{ marginTop: "var(--space-4)" }} onClick={add}>Добавить</button>
     </div>
   );
 }

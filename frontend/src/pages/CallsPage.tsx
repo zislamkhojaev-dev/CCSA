@@ -306,10 +306,8 @@ export default function CallsPage() {
 
   return (
     <>
-      <div className="calls-page-header">
-        <h1 className="page-title" style={{ marginBottom: 0 }}>
-          Звонки
-        </h1>
+      <div className="page-header">
+        <h1 className="page-title">Звонки</h1>
         {selected.size > 0 && (
           <button
             type="button"
@@ -348,10 +346,10 @@ export default function CallsPage() {
 
         {filtersOpen && (
           <div className="calls-filters-body">
-            <div className="calls-filters-row calls-filters-row--pair">
-              <div className="filter-field filter-field--text">
+            <div className="calls-filters-grid">
+              <div className="filter-field filter-field--span-2">
                 <label htmlFor="calls-filter-operator">Оператор</label>
-                <div className="filter-inline">
+                <div className="filter-inline filter-inline--match">
                   <select
                     id="calls-filter-operator-match"
                     aria-label="Условие оператора"
@@ -371,9 +369,9 @@ export default function CallsPage() {
                   />
                 </div>
               </div>
-              <div className="filter-field filter-field--text">
+              <div className="filter-field filter-field--span-2">
                 <label htmlFor="calls-filter-client">Клиент</label>
-                <div className="filter-inline">
+                <div className="filter-inline filter-inline--match">
                   <select
                     id="calls-filter-client-match"
                     aria-label="Условие клиента"
@@ -393,9 +391,7 @@ export default function CallsPage() {
                   />
                 </div>
               </div>
-            </div>
 
-            <div className="calls-filters-row calls-filters-row--quad">
               <div className="filter-field">
                 <label htmlFor="calls-filter-date-from">С</label>
                 <input
@@ -416,7 +412,7 @@ export default function CallsPage() {
               </div>
               <div className="filter-field">
                 <label htmlFor="calls-filter-duration">Длит., с</label>
-                <div className="filter-inline">
+                <div className="filter-inline filter-inline--num">
                   <select
                     id="calls-filter-duration-op"
                     aria-label="Условие длительности"
@@ -439,7 +435,7 @@ export default function CallsPage() {
               </div>
               <div className="filter-field">
                 <label htmlFor="calls-filter-score">Оценка</label>
-                <div className="filter-inline">
+                <div className="filter-inline filter-inline--num">
                   <select
                     id="calls-filter-score-op"
                     aria-label="Условие оценки"
@@ -461,10 +457,8 @@ export default function CallsPage() {
                   />
                 </div>
               </div>
-            </div>
 
-            <div className="calls-filters-row calls-filters-row--status">
-              <div className="filter-field filter-field--status">
+              <div className="filter-field filter-field--span-2">
                 <label htmlFor="calls-filter-status">Статус</label>
                 <select
                   id="calls-filter-status"
@@ -476,7 +470,7 @@ export default function CallsPage() {
                   ))}
                 </select>
               </div>
-              <div className="filter-field filter-field--status">
+              <div className="filter-field filter-field--span-2">
                 <label htmlFor="calls-filter-tag">Тег</label>
                 <SearchableSelect
                   id="calls-filter-tag"

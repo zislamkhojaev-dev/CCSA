@@ -49,13 +49,13 @@ export default function ResearchListPage() {
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "1rem" }}>
+      <div className="page-header">
         <h1 className="page-title">Исследования</h1>
         <Link to="/research/new" className="btn btn-primary">
           <Plus size={16} /> Новое исследование
         </Link>
       </div>
-      <p className="text-muted" style={{ marginBottom: "1rem" }}>
+      <p className="text-muted" style={{ marginBottom: "var(--space-4)" }}>
         LLM-метаанализ по транскрибированным звонкам: один сводный отчёт по выборке.
       </p>
       <div className="card table-wrap">

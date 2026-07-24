@@ -86,9 +86,7 @@ export default function PlaygroundPage() {
       setSelected(null);
       return;
     }
-    const match = selectedFileId
-      ? job.files.find((f) => f.id === selectedFileId)
-      : undefined;
+    const match = selectedFileId ? job.files.find((f) => f.id === selectedFileId) : undefined;
     setSelected(match ?? job.files[0] ?? null);
   }, [job, selectedFileId]);
 
@@ -192,7 +190,7 @@ export default function PlaygroundPage() {
                 ))}
               </select>
             </div>
-            <label className="playground-setup-checkbox">
+            <label className="checkbox-row playground-setup-checkbox">
               <input type="checkbox" checked={useScenarioPrompt} onChange={(e) => setUseScenarioPrompt(e.target.checked)} />
               Использовать промпт из сценария
             </label>
@@ -210,13 +208,13 @@ export default function PlaygroundPage() {
           ) : (
             <>
               <div
+                className="dropzone"
                 onDragOver={(e) => e.preventDefault()}
                 onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
-                style={{ border: "2px dashed var(--border)", borderRadius: 10, padding: "2rem", textAlign: "center", marginBottom: "1rem" }}
               >
                 Перетащите .mp3 / .wav
                 <br />
-                <input type="file" multiple accept=".mp3,.wav" style={{ marginTop: "1rem" }} onChange={(e) => onDrop(e.target.files)} />
+                <input type="file" multiple accept=".mp3,.wav" onChange={(e) => onDrop(e.target.files)} />
               </div>
               <div className="playground-setup-actions">
                 <button
@@ -227,60 +225,42 @@ export default function PlaygroundPage() {
                 >
                   {runAnalysis.isPending || isProcessing(job) ? "Обработка…" : "Запустить анализ"}
                 </button>
-                {jobId && (
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={() => {
-                      clearSession();
-                      setSelected(null);
-                      setActionError(null);
-                    }}
-                  >
-                    Новая сессия
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    clearSession();
+                    setSelected(null);
+                    setActionError(null);
+                    setActionHint(null);
+                  }}
+                >
+                  Новая сессия
+                </button>
               </div>
               {!canRun && job && job.files.length > 0 && !isProcessing(job) && (
-                <p style={{ fontSize: "0.85rem", color: "var(--muted)", marginTop: "0.5rem" }}>
-                  Все файлы уже обработаны. Загрузите новый файл или дождитесь завершения текущего анализа.
-                </p>
+                <p className="text-hint">Все файлы уже обработаны. Загрузите новый файл или дождитесь завершения текущего анализа.</p>
               )}
               {isProcessing(job) && (
-                <p style={{ fontSize: "0.85rem", color: "var(--primary)", marginTop: "0.5rem" }}>
-                  Идёт распознавание и анализ — первая загрузка модели ASR может занять 3–5 минут.
-                </p>
+                <p className="text-hint">Идёт распознавание и анализ — первая загрузка модели ASR может занять 3–5 минут.</p>
               )}
               {job && job.files.length > 0 && (
-                <div style={{ marginTop: "1rem" }}>
-                  <div style={{ height: 8, background: "var(--surface2)", borderRadius: 4, overflow: "hidden" }}>
-                    <div style={{ width: `${progress}%`, height: "100%", background: "var(--primary)", transition: "width 0.3s" }} />
+                <div className="progress">
+                  <div className="progress__track">
+                    <div className="progress__fill" style={{ width: `${progress}%` }} />
                   </div>
-                  <p style={{ fontSize: "0.8rem", color: "var(--muted)", marginTop: "0.35rem" }}>{progress}% завершено</p>
+                  <p className="progress__label">{progress}% завершено</p>
                 </div>
               )}
             </>
           )}
-          {actionError && (
-            <p style={{ color: "var(--red)", fontSize: "0.85rem", marginTop: "0.75rem" }}>{actionError}</p>
-          )}
-          {actionHint && (
-            <p style={{ color: "var(--primary)", fontSize: "0.85rem", marginTop: "0.75rem" }}>{actionHint}</p>
-          )}
+          {actionError && <p className="text-error">{actionError}</p>}
+          {actionHint && <p className="text-success">{actionHint}</p>}
         </div>
 
         <div className="card playground-results">
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              gap: "0.75rem",
-              flexWrap: "wrap",
-              marginBottom: "0.75rem",
-            }}
-          >
-            <h3 style={{ margin: 0 }}>Результаты</h3>
+          <div className="card-header">
+            <h3>Результаты</h3>
             {job && readyFilesCount > 0 && (
               <button
                 type="button"
@@ -289,43 +269,34 @@ export default function PlaygroundPage() {
                 disabled={promoteAll.isPending || isProcessing(job)}
                 title="Сохранить все успешно проанализированные файлы сессии"
               >
-                {promoteAll.isPending
-                  ? "Сохранение…"
-                  : `Сохранить все в базу (${readyFilesCount})`}
+                {promoteAll.isPending ? "Сохранение…" : `Сохранить все в базу (${readyFilesCount})`}
               </button>
             )}
           </div>
           {!job ? (
             <p className="empty">Создайте сессию и загрузите файлы</p>
           ) : (
-            <ul style={{ listStyle: "none" }}>
+            <ul className="list-plain">
               {job.files.map((f) => (
                 <li
                   key={f.id}
-                  style={{ padding: "0.75rem", borderBottom: "1px solid var(--border)", cursor: "pointer", background: selected?.id === f.id ? "var(--surface2)" : undefined }}
+                  className={`list-item${selected?.id === f.id ? " list-item--active" : ""}`}
                   onClick={() => selectFile(f)}
                 >
                   {f.filename} — <span className="badge badge-gray">{STATUS_LABEL[f.status] || f.status}</span>
-                  {f.error_message && (
-                    <span style={{ display: "block", fontSize: "0.75rem", color: "var(--red)", marginTop: "0.25rem" }}>
-                      {f.error_message}
-                    </span>
-                  )}
+                  {f.error_message && <span className="list-item__error">{f.error_message}</span>}
                   {f.analysis?.total_score != null && <> <ScoreBadge score={f.analysis.total_score} /></>}
                 </li>
               ))}
             </ul>
           )}
-          {actionHint && (
-            <p style={{ color: "var(--primary)", fontSize: "0.85rem", marginTop: "0.75rem" }}>{actionHint}</p>
-          )}
         </div>
       </div>
 
       {selected?.status === "ready" && (
-        <div className="card" style={{ marginTop: "1rem" }}>
+        <div className="card playground-detail">
           <h3>Детали: {selected.filename}</h3>
-          <div className="grid-3" style={{ marginTop: "1rem" }}>
+          <div className="grid-3">
             <div>
               {selected.analysis && (
                 <>
@@ -337,7 +308,7 @@ export default function PlaygroundPage() {
                   <p><strong>Итог:</strong> {selected.analysis.call_outcome}</p>
                 </>
               )}
-              <button type="button" className="btn btn-primary" style={{ marginTop: "1rem" }} onClick={() => promote(selected.id)}>
+              <button type="button" className="btn btn-primary" style={{ marginTop: "var(--space-4)" }} onClick={() => promote(selected.id)}>
                 Сохранить в общую базу звонков
               </button>
             </div>
@@ -349,7 +320,7 @@ export default function PlaygroundPage() {
                   seekRef.current = seek;
                 }}
               />
-              <div style={{ maxHeight: 300, overflowY: "auto", marginTop: "0.75rem" }}>
+              <div className="scroll-panel scroll-panel--sm">
                 <TranscriptList
                   utterances={selected.transcription?.utterances}
                   fullText={selected.transcription?.full_text}

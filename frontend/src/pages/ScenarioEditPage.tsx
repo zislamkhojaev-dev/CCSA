@@ -146,13 +146,13 @@ function SortableCriterion({
   const style = { transform: CSS.Transform.toString(transform), transition };
 
   return (
-    <div ref={setNodeRef} className="card" style={{ marginBottom: "1rem", background: "var(--bg)", ...style }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginBottom: "0.75rem" }}>
-        <button type="button" className="btn btn-secondary" {...attributes} {...listeners} aria-label="Drag">
+    <div ref={setNodeRef} className="card criterion-card" style={style}>
+      <div className="criterion-card__header">
+        <button type="button" className="btn btn-secondary btn-icon" {...attributes} {...listeners} aria-label="Drag">
           <GripVertical size={18} />
         </button>
         <strong>Критерий {index + 1}</strong>
-        <button type="button" className="btn btn-danger" style={{ marginLeft: "auto" }} onClick={() => onRemove(index)}>
+        <button type="button" className="btn btn-danger btn-sm" onClick={() => onRemove(index)}>
           Удалить
         </button>
       </div>
@@ -256,7 +256,7 @@ export default function ScenarioEditPage() {
   return (
     <>
       <h1 className="page-title">{isNew ? "Новый сценарий" : `Сценарий: ${name}`}</h1>
-      <div className="card" style={{ marginBottom: "5rem" }}>
+      <div className="card scenario-editor">
         <div className="form-group">
           <label>Название</label>
           <input value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} />
@@ -269,7 +269,7 @@ export default function ScenarioEditPage() {
             ))}
           </select>
         </div>
-        <label style={{ display: "flex", gap: "0.5rem", marginBottom: "1rem" }}>
+        <label className="checkbox-row" style={{ marginBottom: "var(--space-4)" }}>
           <input type="checkbox" checked={isActive} onChange={(e) => { setIsActive(e.target.checked); setDirty(true); }} />
           Активен
         </label>
@@ -277,7 +277,7 @@ export default function ScenarioEditPage() {
           <label>Системный промпт</label>
           <textarea value={systemPrompt} onChange={(e) => { setSystemPrompt(e.target.value); setDirty(true); }} rows={5} placeholder="Ты валидатор качества работы службы поддержки..." />
         </div>
-        <h3 style={{ margin: "1.5rem 0 1rem" }}>Критерии (перетаскивайте за ⋮⋮)</h3>
+        <h3 className="form-section-title">Критерии (перетаскивайте за ⋮⋮)</h3>
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
           <SortableContext items={criteria.map((c) => c.clientId)} strategy={verticalListSortingStrategy}>
             {criteria.map((c, i) => (
@@ -317,11 +317,7 @@ export default function ScenarioEditPage() {
           >
             Сохранить изменения
           </button>
-          {saveError && (
-            <p style={{ color: "var(--red)", fontSize: "0.85rem", margin: "0.5rem 0 0", flex: "1 1 100%" }}>
-              {saveError}
-            </p>
-          )}
+          {saveError && <p className="text-error">{saveError}</p>}
         </div>
       )}
     </>

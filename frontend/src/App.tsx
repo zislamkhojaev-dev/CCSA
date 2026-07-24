@@ -21,7 +21,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     queryFn: () => api.get<{ login: string }>("/auth/me"),
     retry: false,
   });
-  if (isLoading) return <div className="empty">Загрузка...</div>;
+  if (isLoading) return <div className="loading-page">Загрузка…</div>;
   if (isError) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
