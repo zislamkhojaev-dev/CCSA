@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.schemas.dashboard import DashboardWidgetConfig, WidgetMetricResponse
 from app.services.dashboard_filters import DashboardFilters
 from app.services.dashboard_metrics import METRIC_LABELS, fetch_widget_metric
+from app.services.quality_settings import QualityConfig
 
 
 def dashboard_export_filename(*, ext: str) -> str:
@@ -42,10 +43,11 @@ async def build_dashboard_export(
     db: AsyncSession,
     widgets: list[DashboardWidgetConfig],
     filters: DashboardFilters,
+    quality: QualityConfig | None = None,
 ) -> dict[str, Any]:
     metrics: list[dict[str, Any]] = []
     for widget in widgets:
-        data = await fetch_widget_metric(db, widget.metric, filters)
+        data = await fetch_widget_metric(db, widget.metric, filters, quality)
         metrics.append(_metric_to_dict(widget, data))
     return {
         "exported_at": datetime.now(UTC).isoformat(),

@@ -9,6 +9,7 @@ const CRITERION_LABELS: Record<string, string> = {
   greeting: "Приветствие",
   politeness: "Вежливость",
   need_discovery: "Выявление потребности",
+  solution_proposal: "Предложение решения",
   closing: "Завершение",
 };
 

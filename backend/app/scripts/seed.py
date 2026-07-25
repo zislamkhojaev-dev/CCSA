@@ -26,8 +26,12 @@ async def seed() -> None:
         result = await db.execute(select(Scenario).limit(1))
         if not result.scalar_one_or_none():
             scenario = Scenario(
-                name="Входящая линия техподдержки",
-                system_prompt="Ты валидатор качества работы службы поддержки. Оцени разговор по критериям.",
+                name="Входящие звонки — контроль качества",
+                system_prompt=(
+                    "Ты — эксперт по контролю качества входящей линии колл-центра. "
+                    "Оцени транскрипт: оператор принимает обращение, выясняет потребность, "
+                    "предлагает решение и завершает разговор. Опирайся только на факты из текста."
+                ),
                 llm_model="gpt-4o-mini",
                 is_active=True,
             )
@@ -39,37 +43,46 @@ async def seed() -> None:
                         scenario_id=scenario.id,
                         key="greeting",
                         name="Приветствие",
-                        weight_percent=15,
-                        max_score=15,
-                        prompt="Проверь стандартное приветствие оператора.",
+                        weight_percent=10,
+                        max_score=100,
+                        prompt="Стандартное приветствие: компания, имя оператора, предложение помощи.",
                         sort_order=0,
                     ),
                     Criterion(
                         scenario_id=scenario.id,
                         key="politeness",
                         name="Вежливость",
-                        weight_percent=25,
-                        max_score=25,
-                        prompt="Оцени вежливый тон на протяжении разговора.",
+                        weight_percent=15,
+                        max_score=100,
+                        prompt="Уважительный тон на протяжении разговора, без грубости и перебиваний.",
                         sort_order=1,
                     ),
                     Criterion(
                         scenario_id=scenario.id,
                         key="need_discovery",
                         name="Выявление потребности",
-                        weight_percent=30,
-                        max_score=30,
-                        prompt="Задал ли оператор минимум 2 уточняющих вопроса о проблеме?",
+                        weight_percent=35,
+                        max_score=100,
+                        prompt="Минимум 2 уточняющих вопроса и резюме потребности клиента.",
                         sort_order=2,
                     ),
                     Criterion(
                         scenario_id=scenario.id,
-                        key="closing",
-                        name="Завершение",
+                        key="solution_proposal",
+                        name="Предложение решения проблемы",
                         weight_percent=30,
-                        max_score=30,
-                        prompt="Корректно ли завершён разговор, предложена ли помощь?",
+                        max_score=100,
+                        prompt="Конкретный план действий, сроки и следующие шаги для клиента.",
                         sort_order=3,
+                    ),
+                    Criterion(
+                        scenario_id=scenario.id,
+                        key="closing",
+                        name="Завершение разговора",
+                        weight_percent=10,
+                        max_score=100,
+                        prompt="Итог договорённостей, вопрос о доп. помощи, благодарность и прощание.",
+                        sort_order=4,
                     ),
                 ]
             )

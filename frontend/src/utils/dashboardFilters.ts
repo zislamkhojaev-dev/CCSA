@@ -3,28 +3,23 @@ const STORAGE_KEY = "ccsa-dashboard-filters";
 export const DASHBOARD_PERIOD_PRESETS = [7, 30, 90] as const;
 export type DashboardPeriodPreset = (typeof DASHBOARD_PERIOD_PRESETS)[number];
 export type DashboardPeriodMode = `${DashboardPeriodPreset}` | "custom";
-export type DashboardDirection = "" | "inbound" | "outbound";
-
-export type OperatorFilterItem = { id: number; name: string };
 
 export interface DashboardFiltersState {
   periodMode: DashboardPeriodMode;
   dateFrom: string;
   dateTo: string;
-  direction: DashboardDirection;
-  operators: OperatorFilterItem[];
+  scenarioId: number | null;
 }
 
 const DEFAULT_FILTERS: DashboardFiltersState = {
   periodMode: "30",
   dateFrom: "",
   dateTo: "",
-  direction: "",
-  operators: [],
+  scenarioId: null,
 };
 
 export function getDefaultDashboardFilters(): DashboardFiltersState {
-  return { ...DEFAULT_FILTERS, operators: [] };
+  return { ...DEFAULT_FILTERS };
 }
 
 export function loadDashboardFilters(): DashboardFiltersState {
@@ -38,19 +33,11 @@ export function loadDashboardFilters(): DashboardFiltersState {
       DASHBOARD_PERIOD_PRESETS.includes(Number(periodMode) as DashboardPeriodPreset)
         ? periodMode
         : "30";
-    const direction = data.direction === "inbound" || data.direction === "outbound" ? data.direction : "";
-    const operators = Array.isArray(data.operators)
-      ? data.operators.filter(
-          (o): o is OperatorFilterItem =>
-            !!o && typeof o.id === "number" && typeof o.name === "string",
-        )
-      : [];
     return {
       periodMode: validMode,
       dateFrom: typeof data.dateFrom === "string" ? data.dateFrom : "",
       dateTo: typeof data.dateTo === "string" ? data.dateTo : "",
-      direction,
-      operators,
+      scenarioId: typeof data.scenarioId === "number" ? data.scenarioId : null,
     };
   } catch {
     return getDefaultDashboardFilters();
@@ -67,16 +54,7 @@ export function saveDashboardFilters(filters: DashboardFiltersState): void {
 
 /** Stable key for react-query cache invalidation. */
 export function dashboardFiltersKey(filters: DashboardFiltersState): unknown[] {
-  return [
-    filters.periodMode,
-    filters.dateFrom,
-    filters.dateTo,
-    filters.direction,
-    filters.operators
-      .map((o) => o.id)
-      .sort((a, b) => a - b)
-      .join(","),
-  ];
+  return [filters.periodMode, filters.dateFrom, filters.dateTo, filters.scenarioId ?? ""];
 }
 
 export function buildDashboardQueryString(filters: DashboardFiltersState): string {
@@ -90,10 +68,7 @@ export function buildDashboardQueryString(filters: DashboardFiltersState): strin
   } else {
     params.set("period_days", filters.periodMode);
   }
-  if (filters.direction) params.set("direction", filters.direction);
-  for (const op of filters.operators) {
-    params.append("operator_ids", String(op.id));
-  }
+  if (filters.scenarioId) params.set("scenario_id", String(filters.scenarioId));
   return params.toString();
 }
 

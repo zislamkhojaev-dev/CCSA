@@ -20,6 +20,7 @@ class DashboardFilters:
     date_to: datetime | None = None
     direction: str | None = None
     operator_ids: tuple[int, ...] = ()
+    scenario_id: int | None = None
 
     def time_bounds(self) -> tuple[datetime, datetime | None]:
         now = datetime.now(UTC)
@@ -38,6 +39,7 @@ class DashboardFilters:
             "date_to": self.date_to.date().isoformat() if self.date_to else None,
             "direction": self.direction,
             "operator_ids": list(self.operator_ids),
+            "scenario_id": self.scenario_id,
             "effective_since": since.isoformat(),
             "effective_until": until.isoformat() if until else None,
         }
@@ -64,6 +66,7 @@ def parse_dashboard_filters(
     date_to: str | None = None,
     direction: str | None = None,
     operator_ids: list[int] | None = None,
+    scenario_id: int | None = None,
 ) -> DashboardFilters:
     parsed_from = _parse_date_start(date_from)
     parsed_to = _parse_date_end(date_to)
@@ -86,6 +89,7 @@ def parse_dashboard_filters(
         date_to=parsed_to,
         direction=dir_norm,
         operator_ids=op_ids,
+        scenario_id=scenario_id if scenario_id and scenario_id > 0 else None,
     )
 
 
@@ -99,6 +103,8 @@ def apply_call_filters(q: Select, filters: DashboardFilters) -> Select:
         q = q.where(Call.direction == filters.direction)
     if filters.operator_ids:
         q = q.where(Call.operator_id.in_(filters.operator_ids))
+    if filters.scenario_id:
+        q = q.where(Call.scenario_id == filters.scenario_id)
     return q
 
 
@@ -115,4 +121,6 @@ def apply_call_filters_extra(q: Select, filters: DashboardFilters, *, since: dat
         q = q.where(Call.direction == filters.direction)
     if filters.operator_ids:
         q = q.where(Call.operator_id.in_(filters.operator_ids))
+    if filters.scenario_id:
+        q = q.where(Call.scenario_id == filters.scenario_id)
     return q

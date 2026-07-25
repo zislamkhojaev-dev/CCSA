@@ -5,11 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy import Date, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import AnalysisResult, Call, Operator, Transcription
+from app.models import AnalysisResult, Call, Criterion, Operator, Transcription
 from app.schemas.dashboard import MetricSeriesPoint, WidgetMetricResponse
 from app.services.call_utils import duration_seconds_from_utterances
 from app.services.call_query import effective_call_timestamp
 from app.services.dashboard_filters import DashboardFilters, apply_call_filters, apply_call_filters_extra
+from app.services.quality_settings import UNCLASSIFIED_TOPIC, QualityConfig
 
 METRIC_LABELS: dict[str, str] = {
     "calls_total": "Всего звонков",
@@ -30,7 +31,18 @@ METRIC_LABELS: dict[str, str] = {
     "operators_by_score": "Топ операторов по баллу",
     "comparison_calls_analyzed": "Звонки vs проанализировано",
     "comparison_score_violations": "Средний балл vs нарушения",
+    "coverage": "Покрытие оценкой",
+    "criteria_pass_rate": "Проседающие критерии",
+    "score_by_day": "Динамика среднего балла",
+    "operators_top_best": "Топ-5 лучших операторов",
+    "operators_top_worst": "Топ-5 худших операторов",
+    "topics_distribution": "Классификация тем",
+    "score_by_topic": "Качество по темам",
+    "criteria_operator_heatmap": "Критерии × операторы",
+    "calls_heatmap_hour_day": "Пиковые часы (час × день)",
 }
+
+WEEKDAY_LABELS = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 
 
 def _format_duration(seconds: float | None) -> str:
@@ -75,10 +87,46 @@ async def _call_durations_in_period(db: AsyncSession, filters: DashboardFilters)
     return durations
 
 
+async def _fetch_analysis_rows(db: AsyncSession, filters: DashboardFilters) -> list[tuple]:
+    """Fetch (criteria_results, total_score, operator_id, operator_name) for analyzed calls."""
+    q = (
+        select(
+            AnalysisResult.criteria_results,
+            AnalysisResult.total_score,
+            Call.operator_id,
+            Operator.full_name,
+        )
+        .select_from(AnalysisResult)
+        .join(Call, Call.id == AnalysisResult.call_id)
+        .outerjoin(Operator, Operator.id == Call.operator_id)
+    )
+    q = apply_call_filters(q, filters)
+    result = await db.execute(q)
+    return list(result.all())
+
+
+async def _criterion_name_map(db: AsyncSession, scenario_id: int | None = None) -> dict[str, str]:
+    q = select(Criterion.key, Criterion.name)
+    if scenario_id:
+        q = q.where(Criterion.scenario_id == scenario_id)
+    result = await db.execute(q)
+    mapping: dict[str, str] = {}
+    for key, name in result.all():
+        if key:
+            mapping[key] = name or key
+    return mapping
+
+
 async def fetch_widget_metric(
-    db: AsyncSession, metric: str, filters: DashboardFilters | None = None
+    db: AsyncSession,
+    metric: str,
+    filters: DashboardFilters | None = None,
+    quality: QualityConfig | None = None,
 ) -> WidgetMetricResponse:
     filters = filters or DashboardFilters()
+    quality = quality or QualityConfig()
+    good = quality.threshold_good
+    mid = quality.threshold_mid
     label = METRIC_LABELS.get(metric, metric)
     today_start = datetime.now(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -232,7 +280,7 @@ async def fetch_widget_metric(
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score >= 80)
+            .where(AnalysisResult.total_score >= good)
         )
         q_high = apply_call_filters(q_high, filters)
         high = await db.scalar(q_high) or 0
@@ -252,7 +300,7 @@ async def fetch_widget_metric(
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score >= 80)
+            .where(AnalysisResult.total_score >= good)
         )
         q_green = apply_call_filters(q_green, filters)
         green = await db.scalar(q_green) or 0
@@ -261,8 +309,8 @@ async def fetch_widget_metric(
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
             .where(
-                AnalysisResult.total_score >= 50,
-                AnalysisResult.total_score < 80,
+                AnalysisResult.total_score >= mid,
+                AnalysisResult.total_score < good,
             )
         )
         q_yellow = apply_call_filters(q_yellow, filters)
@@ -271,14 +319,14 @@ async def fetch_widget_metric(
             select(func.count())
             .select_from(AnalysisResult)
             .join(Call, Call.id == AnalysisResult.call_id)
-            .where(AnalysisResult.total_score < 50)
+            .where(AnalysisResult.total_score < mid)
         )
         q_red = apply_call_filters(q_red, filters)
         red = await db.scalar(q_red) or 0
         series = [
-            MetricSeriesPoint(label=">80%", value=float(green)),
-            MetricSeriesPoint(label="50-80%", value=float(yellow)),
-            MetricSeriesPoint(label="<50%", value=float(red)),
+            MetricSeriesPoint(label=f"≥{good}%", value=float(green)),
+            MetricSeriesPoint(label=f"{mid}–{good}%", value=float(yellow)),
+            MetricSeriesPoint(label=f"<{mid}%", value=float(red)),
         ]
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
 
@@ -396,6 +444,211 @@ async def fetch_widget_metric(
                 MetricSeriesPoint(label="Нарушения", value=float(violations)),
             ],
         )
+
+    if metric == "coverage":
+        q_total = select(func.count()).select_from(Call)
+        q_total = apply_call_filters(q_total, filters)
+        total = await db.scalar(q_total) or 0
+        q_scored = (
+            select(func.count(func.distinct(AnalysisResult.call_id)))
+            .select_from(AnalysisResult)
+            .join(Call, Call.id == AnalysisResult.call_id)
+        )
+        q_scored = apply_call_filters(q_scored, filters)
+        scored = await db.scalar(q_scored) or 0
+        pct = round(scored / total * 100, 1) if total else 0
+        return WidgetMetricResponse(
+            metric=metric,
+            kind="percent",
+            label=label,
+            value=pct,
+            formatted=f"{pct}%",
+            unit="%",
+            comparison={"numerator": scored, "denominator": total},
+        )
+
+    if metric == "criteria_pass_rate":
+        rows = await _fetch_analysis_rows(db, filters)
+        name_map = await _criterion_name_map(db, filters.scenario_id)
+        passed: dict[str, int] = {}
+        total_c: dict[str, int] = {}
+        for criteria_results, _score, _op_id, _op_name in rows:
+            if not isinstance(criteria_results, dict):
+                continue
+            for key, res in criteria_results.items():
+                if not isinstance(res, dict):
+                    continue
+                if res.get("status") == "not_applicable":
+                    continue
+                total_c[key] = total_c.get(key, 0) + 1
+                if res.get("passed"):
+                    passed[key] = passed.get(key, 0) + 1
+        items = [
+            (key, round(passed.get(key, 0) / n * 100, 1), n)
+            for key, n in total_c.items()
+            if n > 0
+        ]
+        items.sort(key=lambda x: x[1])  # worst first
+        series = [
+            MetricSeriesPoint(label=name_map.get(key, key), value=rate, value_secondary=float(n))
+            for key, rate, n in items[:12]
+        ]
+        return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series, unit="%")
+
+    if metric == "score_by_day":
+        day_col = cast(func.date_trunc("day", effective_call_timestamp()), Date)
+        q = (
+            select(day_col.label("day"), func.avg(AnalysisResult.total_score).label("avg"))
+            .select_from(AnalysisResult)
+            .join(Call, Call.id == AnalysisResult.call_id)
+        )
+        q = apply_call_filters(q, filters)
+        q = q.group_by(day_col).order_by(day_col)
+        result = await db.execute(q)
+        series = [
+            MetricSeriesPoint(
+                label=row.day.strftime("%d.%m") if row.day else "?",
+                value=round(float(row.avg), 1) if row.avg is not None else 0.0,
+            )
+            for row in result.all()
+        ]
+        return WidgetMetricResponse(
+            metric=metric, kind="series", label=label, series=series, unit="%", target=float(quality.target)
+        )
+
+    if metric in ("operators_top_best", "operators_top_worst"):
+        q = (
+            select(
+                Operator.full_name,
+                func.avg(AnalysisResult.total_score).label("avg"),
+                func.count(AnalysisResult.id).label("cnt"),
+            )
+            .select_from(Operator)
+            .join(Call, Call.operator_id == Operator.id)
+            .join(AnalysisResult, AnalysisResult.call_id == Call.id)
+        )
+        q = apply_call_filters(q, filters)
+        order = func.avg(AnalysisResult.total_score)
+        q = q.group_by(Operator.id, Operator.full_name).having(func.count(AnalysisResult.id) > 0)
+        q = q.order_by(order.desc() if metric == "operators_top_best" else order.asc()).limit(5)
+        result = await db.execute(q)
+        series = [
+            MetricSeriesPoint(
+                label=row.full_name,
+                value=round(float(row.avg), 1) if row.avg is not None else 0.0,
+                value_secondary=float(row.cnt or 0),
+            )
+            for row in result.all()
+        ]
+        return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series, unit="%")
+
+    if metric == "topics_distribution":
+        topic_expr = func.coalesce(AnalysisResult.topic, UNCLASSIFIED_TOPIC)
+        q = (
+            select(topic_expr.label("topic"), func.count().label("cnt"))
+            .select_from(AnalysisResult)
+            .join(Call, Call.id == AnalysisResult.call_id)
+        )
+        q = apply_call_filters(q, filters)
+        q = q.group_by(topic_expr).order_by(func.count().desc())
+        result = await db.execute(q)
+        series = [MetricSeriesPoint(label=row.topic, value=float(row.cnt)) for row in result.all()]
+        return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
+
+    if metric == "score_by_topic":
+        topic_expr = func.coalesce(AnalysisResult.topic, UNCLASSIFIED_TOPIC)
+        q = (
+            select(
+                topic_expr.label("topic"),
+                func.avg(AnalysisResult.total_score).label("avg"),
+                func.count().label("cnt"),
+            )
+            .select_from(AnalysisResult)
+            .join(Call, Call.id == AnalysisResult.call_id)
+        )
+        q = apply_call_filters(q, filters)
+        q = q.group_by(topic_expr).order_by(func.avg(AnalysisResult.total_score).asc())
+        result = await db.execute(q)
+        series = [
+            MetricSeriesPoint(
+                label=row.topic,
+                value=round(float(row.avg), 1) if row.avg is not None else 0.0,
+                value_secondary=float(row.cnt or 0),
+            )
+            for row in result.all()
+        ]
+        return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series, unit="%")
+
+    if metric == "criteria_operator_heatmap":
+        rows = await _fetch_analysis_rows(db, filters)
+        name_map = await _criterion_name_map(db, filters.scenario_id)
+        # (criterion_key, operator_name) -> [passed, total]
+        cell: dict[tuple[str, str], list[int]] = {}
+        crit_total: dict[str, int] = {}
+        op_total: dict[str, int] = {}
+        for criteria_results, _score, _op_id, op_name in rows:
+            operator = op_name or "Без оператора"
+            if not isinstance(criteria_results, dict):
+                continue
+            for key, res in criteria_results.items():
+                if not isinstance(res, dict) or res.get("status") == "not_applicable":
+                    continue
+                c = cell.setdefault((key, operator), [0, 0])
+                c[1] += 1
+                if res.get("passed"):
+                    c[0] += 1
+                crit_total[key] = crit_total.get(key, 0) + 1
+                op_total[operator] = op_total.get(operator, 0) + 1
+        # worst criteria first, busiest operators first
+        crit_keys = sorted(crit_total, key=lambda k: crit_total[k], reverse=True)[:12]
+        crit_keys.sort(
+            key=lambda k: (
+                sum(cell.get((k, o), [0, 0])[0] for o in op_total)
+                / max(1, sum(cell.get((k, o), [0, 0])[1] for o in op_total))
+            )
+        )
+        op_names = sorted(op_total, key=lambda o: op_total[o], reverse=True)[:12]
+        cells = []
+        for key in crit_keys:
+            row_cells = []
+            for op in op_names:
+                pv = cell.get((key, op))
+                if pv and pv[1] > 0:
+                    row_cells.append({"value": round(pv[0] / pv[1] * 100, 1), "count": pv[1]})
+                else:
+                    row_cells.append(None)
+            cells.append(row_cells)
+        matrix = {
+            "rows": [{"key": k, "label": name_map.get(k, k)} for k in crit_keys],
+            "cols": [{"label": o} for o in op_names],
+            "cells": cells,
+            "unit": "%",
+        }
+        return WidgetMetricResponse(metric=metric, kind="matrix", label=label, matrix=matrix)
+
+    if metric == "calls_heatmap_hour_day":
+        ts = effective_call_timestamp()
+        dow = func.extract("dow", ts)  # 0=Sunday..6=Saturday
+        hour = func.extract("hour", ts)
+        q = select(dow.label("dow"), hour.label("hour"), func.count().label("cnt")).select_from(Call)
+        q = apply_call_filters(q, filters)
+        q = q.group_by(dow, hour)
+        result = await db.execute(q)
+        grid = [[0 for _ in range(24)] for _ in range(7)]
+        for row in result.all():
+            # Convert Postgres dow (0=Sun) to Mon-first index (0=Mon..6=Sun)
+            pg_dow = int(row.dow)
+            idx = (pg_dow + 6) % 7
+            h = int(row.hour)
+            if 0 <= h < 24:
+                grid[idx][h] = int(row.cnt)
+        matrix = {
+            "rows": [{"label": WEEKDAY_LABELS[i]} for i in range(7)],
+            "cols": [{"label": f"{h:02d}"} for h in range(24)],
+            "cells": [[{"value": grid[i][h]} for h in range(24)] for i in range(7)],
+            "unit": "шт",
+        }
+        return WidgetMetricResponse(metric=metric, kind="matrix", label=label, matrix=matrix)
 
     return WidgetMetricResponse(
         metric=metric,

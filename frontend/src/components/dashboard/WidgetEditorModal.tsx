@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import {
   METRIC_OPTIONS,
   WIDGET_TYPES,
+  allowedWidgetTypes,
+  defaultWidgetType,
+  suggestedWidgetSize,
   type DashboardWidget,
   type WidgetSize,
   type WidgetType,
@@ -22,7 +25,8 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
   useEffect(() => {
     if (widget) {
       setTitle(widget.title);
-      setType(widget.type);
+      const allowed = allowedWidgetTypes(widget.metric);
+      setType(allowed.includes(widget.type) ? widget.type : allowed[0]);
       setMetric(widget.metric);
       setSize(widget.size);
     }
@@ -30,10 +34,14 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
 
   if (!widget) return null;
 
+  const typeOptions = WIDGET_TYPES.filter((t) => allowedWidgetTypes(metric).includes(t.value));
+
   const handleMetricChange = (m: string) => {
     setMetric(m);
     const opt = METRIC_OPTIONS.find((o) => o.value === m);
     if (opt && !title.trim()) setTitle(opt.label);
+    setType(defaultWidgetType(m));
+    setSize(suggestedWidgetSize(m));
   };
 
   const submit = (e: React.FormEvent) => {
@@ -56,16 +64,6 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
             <input value={title} onChange={(e) => setTitle(e.target.value)} required />
           </div>
           <div className="form-group">
-            <label>Тип отображения</label>
-            <select value={type} onChange={(e) => setType(e.target.value as WidgetType)}>
-              {WIDGET_TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="form-group">
             <label>Источник данных</label>
             <select value={metric} onChange={(e) => handleMetricChange(e.target.value)}>
               {categories.map((cat) => (
@@ -78,6 +76,23 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
                 </optgroup>
               ))}
             </select>
+          </div>
+          <div className="form-group">
+            <label>Тип отображения</label>
+            <select
+              value={type}
+              onChange={(e) => setType(e.target.value as WidgetType)}
+              disabled={typeOptions.length <= 1}
+            >
+              {typeOptions.map((t) => (
+                <option key={t.value} value={t.value}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+            {typeOptions.length <= 1 && (
+              <p className="form-hint">Для этой метрики доступен один вид отображения.</p>
+            )}
           </div>
           <div className="form-group">
             <label>Размер</label>

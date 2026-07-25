@@ -28,3 +28,9 @@ def test_parse_custom_range():
     assert since.date().isoformat() == "2026-01-01"
     assert until is not None
     assert until.date().isoformat() == "2026-01-31"
+
+
+def test_parse_scenario_id():
+    assert parse_dashboard_filters(scenario_id=5).scenario_id == 5
+    assert parse_dashboard_filters(scenario_id=0).scenario_id is None
+    assert parse_dashboard_filters().scenario_id is None

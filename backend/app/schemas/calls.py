@@ -37,6 +37,7 @@ class AnalysisOut(BaseModel):
     summary: str | None
     client_pains: str | None
     call_outcome: str | None
+    topic: str | None = None
     criteria_results: dict | None
     llm_model: str | None
     created_at: datetime

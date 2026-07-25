@@ -971,6 +971,181 @@ td:has(.table-actions) {
 .dash-bar-value {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dash-bar-sub {
+  font-weight: 400;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+/* Trend (line + target) */
+.dash-trend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  height: 100%;
+}
+
+.dash-trend-svg {
+  width: 100%;
+  flex: 1;
+  min-height: 60px;
+}
+
+.dash-trend-line {
+  stroke: var(--primary);
+  stroke-width: 1.5;
+  vector-effect: non-scaling-stroke;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.dash-trend-target {
+  stroke: var(--yellow);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.dash-trend-foot {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.dash-trend-target-label {
+  color: var(--yellow);
+}
+
+/* Loading skeletons */
+.dash-skel-block {
+  display: block;
+  background: var(--surface2);
+  border-radius: 6px;
+}
+
+.dash-skel-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+
+.dash-skel-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--surface) 60%, transparent),
+    transparent
+  );
+  animation: dash-shimmer 1.3s ease-in-out infinite;
+}
+
+@keyframes dash-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.dash-skel-kpi {
+  height: 2.2rem;
+  width: 60%;
+  margin: 0.4rem 0;
+}
+
+.dash-skel-trend {
+  height: 100%;
+  min-height: 70px;
+  width: 100%;
+}
+
+.dash-skel-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.dash-skel-bars .dash-skel-block {
+  height: 12px;
+}
+
+.dash-skel-compare {
+  display: flex;
+  gap: 1rem;
+  justify-content: space-around;
+  align-items: center;
+  height: 100%;
+}
+
+.dash-skel-compare .dash-skel-block {
+  height: 3rem;
+  width: 40%;
+}
+
+.dash-skel-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+}
+
+.dash-skel-cell {
+  height: 18px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-skel-shimmer::after {
+    animation: none;
+  }
+}
+
+/* Heatmap table */
+.dash-heatmap-scroll {
+  overflow: auto;
+  max-height: 100%;
+}
+
+.dash-heatmap {
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  width: 100%;
+}
+
+.dash-heatmap th,
+.dash-heatmap td {
+  border: 1px solid var(--border);
+  padding: 0.25rem 0.3rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dash-heatmap thead th,
+.dash-heatmap tbody th {
+  color: var(--muted);
+  font-weight: 500;
+  background: var(--surface2);
+  position: sticky;
+}
+
+.dash-heatmap tbody th {
+  left: 0;
+  text-align: left;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dash-heatmap thead th {
+  top: 0;
+}
+
+.dash-heatmap-corner {
+  left: 0;
+  z-index: 1;
 }
 
 .dash-comparison {

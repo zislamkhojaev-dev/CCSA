@@ -29,6 +29,7 @@ type CallDetail = {
     summary: string | null;
     client_pains: string | null;
     call_outcome: string | null;
+    topic: string | null;
     criteria_results: Record<string, { score: number; passed: boolean; comment: string; status?: string }>;
   }[];
   notes: { id: number; text: string; user_name: string; created_at: string }[];
@@ -50,7 +51,7 @@ export default function CallDetailPage() {
   const [tags, setTags] = useState<TagItem[]>([]);
   const [actionHint, setActionHint] = useState<string | null>(null);
 
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, isError, error } = useQuery({
     queryKey: ["call", id],
     queryFn: () => api.get<CallDetail>(`/calls/${id}`),
     enabled: !!id,
@@ -99,7 +100,17 @@ export default function CallDetailPage() {
     onError: (e: Error) => setActionHint(e.message || "Не удалось запустить ASR"),
   });
 
-  if (isLoading || !data) return <p className="empty">Загрузка...</p>;
+  if (isLoading) return <p className="empty">Загрузка...</p>;
+
+  if (isError) {
+    return (
+      <p className="empty text-error">
+        Не удалось загрузить звонок: {error instanceof Error ? error.message : "ошибка сервера"}
+      </p>
+    );
+  }
+
+  if (!data) return <p className="empty">Звонок не найден</p>;
 
   const analysis = data.analysis_results[0];
   const trans = data.transcriptions[0];
@@ -172,6 +183,7 @@ export default function CallDetailPage() {
               <h4>ИИ-суммаризация</h4>
               <p>{analysis.summary}</p>
               <p><strong>Боли клиента:</strong> {analysis.client_pains || "—"}</p>
+              <p><strong>Тема:</strong> {analysis.topic || "—"}</p>
               <p><strong>Итог:</strong> {analysis.call_outcome || "—"}</p>
             </>
           )}

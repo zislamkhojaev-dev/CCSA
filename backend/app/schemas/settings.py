@@ -37,6 +37,20 @@ class SettingsUpdate(BaseModel):
     ollama_base_url: str | None = None
 
 
+class QualitySettings(BaseModel):
+    threshold_good: int = Field(80, ge=0, le=100)
+    threshold_mid: int = Field(50, ge=0, le=100)
+    target: int = Field(85, ge=0, le=100)
+    topics: list[str] = Field(default_factory=list)
+
+
+class QualitySettingsUpdate(BaseModel):
+    threshold_good: int = Field(..., ge=0, le=100)
+    threshold_mid: int = Field(..., ge=0, le=100)
+    target: int = Field(..., ge=0, le=100)
+    topics: list[str] = Field(default_factory=list)
+
+
 class WebitelSettings(BaseModel):
     api_url: str = ""
     access_token: str | None = None

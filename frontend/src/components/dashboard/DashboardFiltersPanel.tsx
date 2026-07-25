@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, Download } from "lucide-react";
 import { useState } from "react";
-import OperatorMultiPicker from "../OperatorMultiPicker";
+import { useQuery } from "@tanstack/react-query";
+import { api } from "../../api/client";
 import type { DashboardFiltersState, DashboardPeriodMode } from "../../utils/dashboardFilters";
 import { DASHBOARD_PERIOD_PRESETS } from "../../utils/dashboardFilters";
 
@@ -13,13 +14,17 @@ type Props = {
 
 export default function DashboardFiltersPanel({ filters, onChange, onExport, exporting }: Props) {
   const [open, setOpen] = useState(true);
+  const { data: scenarios } = useQuery({
+    queryKey: ["scenarios-list"],
+    queryFn: () => api.get<{ id: number; name: string }[]>("/scenarios"),
+    staleTime: 5 * 60 * 1000,
+  });
 
   const set = (patch: Partial<DashboardFiltersState>) => onChange({ ...filters, ...patch });
 
   const activeCount =
     (filters.periodMode === "custom" && (filters.dateFrom || filters.dateTo) ? 1 : 0) +
-    (filters.direction ? 1 : 0) +
-    (filters.operators.length > 0 ? 1 : 0);
+    (filters.scenarioId ? 1 : 0);
 
   return (
     <div className={`card dash-filters${open ? " dash-filters--open" : ""}`}>
@@ -97,27 +102,20 @@ export default function DashboardFiltersPanel({ filters, onChange, onExport, exp
             </div>
 
             <div className="filter-field">
-              <label htmlFor="dash-filter-direction">Направление</label>
+              <label htmlFor="dash-filter-scenario">Сценарий</label>
               <select
-                id="dash-filter-direction"
+                id="dash-filter-scenario"
                 className="form-input dash-filter-control"
-                value={filters.direction}
-                onChange={(e) =>
-                  set({ direction: e.target.value as DashboardFiltersState["direction"] })
-                }
+                value={filters.scenarioId ?? ""}
+                onChange={(e) => set({ scenarioId: e.target.value ? Number(e.target.value) : null })}
               >
-                <option value="">Все</option>
-                <option value="inbound">Входящие</option>
-                <option value="outbound">Исходящие</option>
+                <option value="">Все сценарии</option>
+                {scenarios?.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                  </option>
+                ))}
               </select>
-            </div>
-
-            <div className="filter-field">
-              <label>Операторы</label>
-              <OperatorMultiPicker
-                value={filters.operators.map((o) => ({ id: o.id, name: o.name }))}
-                onChange={(ops) => set({ operators: ops.map((o) => ({ id: o.id, name: o.name })) })}
-              />
             </div>
           </div>
         </div>

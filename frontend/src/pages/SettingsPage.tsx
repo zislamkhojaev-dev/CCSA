@@ -338,6 +338,142 @@ function WebitelTab() {
   );
 }
 
+type QualityData = {
+  threshold_good: number;
+  threshold_mid: number;
+  target: number;
+  topics: string[];
+};
+
+function QualityTab() {
+  const qc = useQueryClient();
+  const { data } = useQuery({
+    queryKey: ["settings-quality"],
+    queryFn: () => api.get<QualityData>("/settings/quality"),
+  });
+  const [form, setForm] = useState<QualityData>({
+    threshold_good: 80,
+    threshold_mid: 50,
+    target: 85,
+    topics: [],
+  });
+  const [dirty, setDirty] = useState(false);
+
+  useEffect(() => {
+    if (data) setForm({
+      threshold_good: data.threshold_good,
+      threshold_mid: data.threshold_mid,
+      target: data.target,
+      topics: data.topics ?? [],
+    });
+  }, [data]);
+
+  const save = useMutation({
+    mutationFn: () =>
+      api.put("/settings/quality", {
+        ...form,
+        topics: form.topics.map((t) => t.trim()).filter(Boolean),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings-quality"] });
+      setDirty(false);
+    },
+  });
+
+  const [backfillHint, setBackfillHint] = useState<string | null>(null);
+
+  const backfillTopics = useMutation({
+    mutationFn: () => api.post<{ message: string }>("/settings/quality/backfill-topics"),
+    onSuccess: (r) => {
+      setBackfillHint(
+        `${r.message} Обновите страницу звонка через 1–2 минуты — темы появятся по мере обработки.`,
+      );
+    },
+    onError: (e: Error) => setBackfillHint(`Ошибка: ${e.message}`),
+  });
+
+  const setNum = (key: "threshold_good" | "threshold_mid" | "target", raw: string) => {
+    const v = Math.max(0, Math.min(100, Number(raw) || 0));
+    setForm((f) => ({ ...f, [key]: v }));
+    setDirty(true);
+  };
+
+  const updateTopic = (idx: number, value: string) => {
+    setForm((f) => ({ ...f, topics: f.topics.map((t, i) => (i === idx ? value : t)) }));
+    setDirty(true);
+  };
+  const removeTopic = (idx: number) => {
+    setForm((f) => ({ ...f, topics: f.topics.filter((_, i) => i !== idx) }));
+    setDirty(true);
+  };
+  const addTopic = () => {
+    setForm((f) => ({ ...f, topics: [...f.topics, ""] }));
+    setDirty(true);
+  };
+
+  return (
+  <>
+    <div className="card settings-tab-content">
+      <h3>Пороги качества</h3>
+      <p className="text-muted">Определяют цвета и группировку оценок на дашбордах.</p>
+      <div className="grid-2">
+        <div className="form-group">
+          <label>Порог «хорошо» (зелёный), %</label>
+          <input type="number" min={0} max={100} value={form.threshold_good} onChange={(e) => setNum("threshold_good", e.target.value)} />
+        </div>
+        <div className="form-group">
+          <label>Порог «средне» (жёлтый), %</label>
+          <input type="number" min={0} max={100} value={form.threshold_mid} onChange={(e) => setNum("threshold_mid", e.target.value)} />
+          <p className="form-hint">Ниже этого порога — красный. Не может превышать порог «хорошо».</p>
+        </div>
+      </div>
+      <div className="form-group">
+        <label>Целевой средний балл (target), %</label>
+        <input type="number" min={0} max={100} value={form.target} onChange={(e) => setNum("target", e.target.value)} />
+        <p className="form-hint">Отображается целевой линией на графике динамики среднего балла.</p>
+      </div>
+
+      <h3 className="form-section-title">Таксономия тем звонков</h3>
+      <p className="text-muted">Список категорий, из которых LLM выбирает тему звонка. Держите его коротким и понятным.</p>
+      <div className="topic-list">
+        {form.topics.map((t, i) => (
+          <div key={i} className="topic-row">
+            <input
+              className="form-input"
+              value={t}
+              placeholder="Название темы"
+              onChange={(e) => updateTopic(i, e.target.value)}
+            />
+            <button type="button" className="btn btn-secondary" onClick={() => removeTopic(i)}>Удалить</button>
+          </div>
+        ))}
+      </div>
+      <button type="button" className="btn btn-secondary mt-2" onClick={addTopic}>+ Добавить тему</button>
+
+      <h4 className="form-section-title">Классификация существующих звонков</h4>
+      <p className="text-muted">
+        Проставить тему звонкам без классификации или с «Не классифицировано» (например, если OpenAI был недоступен).
+        Используется провайдер из вкладки «Модели и AI» — OpenAI, Gemini или Ollama.
+      </p>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => backfillTopics.mutate()}
+        disabled={backfillTopics.isPending}
+      >
+        {backfillTopics.isPending ? "Запуск…" : "Классифицировать без темы"}
+      </button>
+      {backfillHint && (
+        <p className={`form-hint mt-2 ${backfillHint.startsWith("Ошибка:") ? "text-error" : ""}`} role="status">
+          {backfillHint}
+        </p>
+      )}
+    </div>
+    <StickySave dirty={dirty} onSave={() => save.mutate()} />
+  </>
+  );
+}
+
 function AutomationTab() {
   const { data, refetch } = useQuery({
     queryKey: ["automation"],
@@ -464,12 +600,14 @@ export default function SettingsPage() {
       <div className="tabs" role="tablist" aria-label="Разделы настроек">
         <NavLink to="/settings" end className={({ isActive }) => (isActive ? "active" : undefined)}>Модели и AI</NavLink>
         <NavLink to="/settings/webitel" className={({ isActive }) => (isActive ? "active" : undefined)}>Коннекторы</NavLink>
+        <NavLink to="/settings/quality" className={({ isActive }) => (isActive ? "active" : undefined)}>Качество</NavLink>
         <NavLink to="/settings/automation" className={({ isActive }) => (isActive ? "active" : undefined)}>Автоматизация</NavLink>
         <NavLink to="/settings/admin" className={({ isActive }) => (isActive ? "active" : undefined)}>Администрирование</NavLink>
       </div>
       <Routes>
         <Route index element={<ModelsTab />} />
         <Route path="webitel" element={<WebitelTab />} />
+        <Route path="quality" element={<QualityTab />} />
         <Route path="automation" element={<AutomationTab />} />
         <Route path="admin" element={<AdminTab />} />
       </Routes>

@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field, ValidationError
 from app.config import get_settings
 from app.models import Criterion, Scenario
 from app.services.pii import CLOUD_PROVIDERS, prepare_text_for_llm
+from app.services.quality_settings import UNCLASSIFIED_TOPIC
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +47,26 @@ class AnalysisOutput(BaseModel):
     summary: str = ""
     client_pains: str = ""
     call_outcome: str = ""
+    topic: str = ""
     criteria_results: dict[str, CriterionResult]
+
+
+def _allowed_topics(topics: list[str] | None) -> list[str]:
+    clean = [t.strip() for t in (topics or []) if t and t.strip()]
+    if UNCLASSIFIED_TOPIC not in clean:
+        clean.append(UNCLASSIFIED_TOPIC)
+    return clean
+
+
+def normalize_topic(raw: str | None, topics: list[str] | None) -> str:
+    allowed = _allowed_topics(topics)
+    value = (raw or "").strip()
+    if not value:
+        return UNCLASSIFIED_TOPIC
+    for t in allowed:
+        if t.lower() == value.lower():
+            return t
+    return UNCLASSIFIED_TOPIC
 
 
 _CRITERION_RESULT_SCHEMA: dict[str, Any] = {
@@ -62,9 +82,13 @@ _CRITERION_RESULT_SCHEMA: dict[str, Any] = {
 }
 
 
-def _analysis_json_schema(criteria: list[Criterion]) -> dict[str, Any]:
+def _analysis_json_schema(criteria: list[Criterion], topics: list[str] | None = None) -> dict[str, Any]:
     """JSON Schema for OpenAI strict structured output (all objects need additionalProperties: false)."""
     criterion_props = {c.key: _CRITERION_RESULT_SCHEMA for c in criteria}
+    topic_schema: dict[str, Any] = {"type": "string"}
+    allowed = _allowed_topics(topics)
+    if allowed:
+        topic_schema["enum"] = allowed
     return {
         "type": "object",
         "properties": {
@@ -73,6 +97,7 @@ def _analysis_json_schema(criteria: list[Criterion]) -> dict[str, Any]:
             "summary": {"type": "string"},
             "client_pains": {"type": "string"},
             "call_outcome": {"type": "string"},
+            "topic": topic_schema,
             "criteria_results": {
                 "type": "object",
                 "properties": criterion_props,
@@ -86,24 +111,36 @@ def _analysis_json_schema(criteria: list[Criterion]) -> dict[str, Any]:
             "summary",
             "client_pains",
             "call_outcome",
+            "topic",
             "criteria_results",
         ],
         "additionalProperties": False,
     }
 
 
-def _build_prompt(scenario: Scenario, criteria: list[Criterion], transcript: str) -> str:
+def _build_prompt(
+    scenario: Scenario, criteria: list[Criterion], transcript: str, topics: list[str] | None = None
+) -> str:
     criteria_block = "\n".join(
         f'- "{c.key}" ({c.name}, max {c.max_score}, weight {c.weight_percent}%): {c.prompt}'
         for c in criteria
     )
+    topics_block = ""
+    allowed = _allowed_topics(topics)
+    if allowed:
+        topic_list = "\n".join(f"- {t}" for t in allowed)
+        topics_block = (
+            "\n\nОпредели тему звонка. Выбери РОВНО ОДНУ тему из списка "
+            f'(поле "topic"). Если ни одна не подходит — верни "{UNCLASSIFIED_TOPIC}".\n'
+            f"Список тем:\n{topic_list}\n"
+        )
     return f"""{scenario.system_prompt}
 
 Оцени транскрипт разговора колл-центра. Ответ — только JSON.
 
 Критерии:
 {criteria_block}
-
+{topics_block}
 Транскрипт:
 {transcript}
 """
@@ -114,6 +151,7 @@ def _call_openai(
     model: str,
     api_key: str,
     criteria: list[Criterion],
+    topics: list[str] | None = None,
 ) -> dict[str, Any]:
     client = OpenAI(api_key=api_key)
     messages = [
@@ -123,7 +161,7 @@ def _call_openai(
         },
         {"role": "user", "content": prompt},
     ]
-    schema = _analysis_json_schema(criteria)
+    schema = _analysis_json_schema(criteria, topics)
     try:
         response = client.chat.completions.create(
             model=model,
@@ -177,6 +215,7 @@ async def analyze_transcript(
     model: str | None = None,
     ollama_base_url: str | None = None,
     custom_system_prompt: str | None = None,
+    topics: list[str] | None = None,
 ) -> AnalysisOutput:
     settings = get_settings()
     prov = (provider or "openai").lower()
@@ -198,7 +237,7 @@ async def analyze_transcript(
             llm_model=scenario.llm_model,
         )
 
-    prompt = _build_prompt(scenario_copy, criteria, text)
+    prompt = _build_prompt(scenario_copy, criteria, text, topics)
     last_error: Exception | None = None
 
     for attempt in range(MAX_LLM_RETRIES):
@@ -211,16 +250,91 @@ async def analyze_transcript(
             else:
                 key = api_key or settings.openai_api_key
                 if not key:
-                    return _mock_analysis(criteria)
-                data = _call_openai(prompt, model_name, key, criteria)
-            return AnalysisOutput.model_validate(data)
+                    return _mock_analysis(criteria, topics=topics)
+                data = _call_openai(prompt, model_name, key, criteria, topics)
+            output = AnalysisOutput.model_validate(data)
+            output.topic = normalize_topic(output.topic, topics)
+            return output
         except (json.JSONDecodeError, ValidationError, Exception) as e:
             last_error = e
             logger.warning("LLM attempt %s failed: %s", attempt + 1, e)
             prompt = prompt + f"\n\n(Предыдущий ответ невалиден: {e}. Верни корректный JSON.)"
 
     logger.error("LLM failed after retries: %s", last_error)
-    return _mock_analysis(criteria, error=str(last_error))
+    return _mock_analysis(criteria, error=str(last_error), topics=topics)
+
+
+MAX_TOPIC_TRANSCRIPT_CHARS = 12_000
+
+
+def _classify_topic_openai(prompt: str, model: str, api_key: str, topics: list[str]) -> str:
+    client = OpenAI(api_key=api_key, timeout=45.0)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": "Ты классифицируешь звонки колл-центра по теме. Отвечай строго JSON."},
+            {"role": "user", "content": prompt},
+        ],
+        response_format={"type": "json_object"},
+        temperature=0,
+    )
+    raw = response.choices[0].message.content or "{}"
+    return json.loads(raw).get("topic", "")
+
+
+def _build_topic_prompt(transcript: str, topics: list[str]) -> str:
+    topic_list = "\n".join(f"- {t}" for t in _allowed_topics(topics))
+    return (
+        "Определи тему звонка. Выбери РОВНО ОДНУ тему из списка. "
+        f'Если ни одна не подходит — верни "{UNCLASSIFIED_TOPIC}".\n\n'
+        f"Список тем:\n{topic_list}\n\n"
+        f"Транскрипт:\n{transcript}\n\n"
+        'Ответ строго JSON вида {"topic": "<тема>"}.'
+    )
+
+
+async def classify_topic(
+    transcript: str,
+    topics: list[str],
+    *,
+    anonymize: bool = True,
+    provider: str = "openai",
+    api_key: str | None = None,
+    model: str | None = None,
+    ollama_base_url: str | None = None,
+) -> str:
+    """Lightweight topic-only classification (used for backfill of existing calls)."""
+    settings = get_settings()
+    prov = (provider or "openai").lower()
+    model_name = model or settings.openai_model
+    try:
+        text = prepare_text_for_llm(
+            transcript[:MAX_TOPIC_TRANSCRIPT_CHARS],
+            provider=prov,
+            anonymize_enabled=anonymize,
+            require_anonymization_for_cloud=True,
+        )
+    except Exception as e:
+        logger.warning("Topic classification skipped (PII prep failed): %s", e)
+        return UNCLASSIFIED_TOPIC
+    prompt = _build_topic_prompt(text, topics)
+    try:
+        if prov in ("local", "ollama"):
+            base = ollama_base_url or "http://host.docker.internal:11434"
+            data = _call_ollama(prompt, model_name, base)
+            raw = data.get("topic", "") if isinstance(data, dict) else ""
+        elif prov == "gemini":
+            data = await _call_gemini(prompt, model_name, api_key)
+            raw = data.get("topic", "") if isinstance(data, dict) else ""
+        else:
+            key = api_key or settings.openai_api_key
+            if not key:
+                return UNCLASSIFIED_TOPIC
+            raw = _classify_topic_openai(prompt, model_name, key, topics)
+    except Exception as e:
+        logger.warning("Topic classification failed: %s", e)
+        return UNCLASSIFIED_TOPIC
+    return normalize_topic(raw, topics)
 
 
 async def _get_setting_fallback(key: str, default: str) -> str:
@@ -245,7 +359,9 @@ async def _call_gemini(prompt: str, model: str, api_key: str | None) -> dict[str
         return json.loads(text)
 
 
-def _mock_analysis(criteria: list[Criterion], error: str | None = None) -> AnalysisOutput:
+def _mock_analysis(
+    criteria: list[Criterion], error: str | None = None, topics: list[str] | None = None
+) -> AnalysisOutput:
     err_hint = (error or "")[:120]
     results = {}
     total = 0
@@ -263,6 +379,7 @@ def _mock_analysis(criteria: list[Criterion], error: str | None = None) -> Analy
         summary="Анализ недоступен — проверьте ключ OpenAI и настройки LLM." + (f" {err_hint}" if err_hint else ""),
         client_pains="—",
         call_outcome="other",
+        topic=UNCLASSIFIED_TOPIC,
         criteria_results=results,
     )
 

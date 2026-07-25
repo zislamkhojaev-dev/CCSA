@@ -1,7 +1,10 @@
+import json
+
 from sqlalchemy import select
 
 from app.models import AutomationRule, Criterion, Scenario, Transcription
 from app.services.llm import analyze_transcript
+from app.services.quality_settings import DEFAULT_TAXONOMY, parse_topics
 from worker.db import get_sync_session
 from worker.settings_sync import get_setting_sync
 
@@ -52,12 +55,16 @@ def run_llm_analysis(db, call, scenario_id: int | None = None):
     )
     kwargs = get_llm_kwargs(db)
     llm_model = get_setting_sync(db, "llm_model", scenario.llm_model)
+    topics = parse_topics(
+        get_setting_sync(db, "call_topics", json.dumps(DEFAULT_TAXONOMY, ensure_ascii=False))
+    )
     return asyncio.run(
         analyze_transcript(
             scenario,
             criteria,
             trans.full_text,
             model=llm_model,
+            topics=topics,
             **kwargs,
         )
     )

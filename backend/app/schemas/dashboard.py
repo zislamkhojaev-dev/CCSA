@@ -29,9 +29,11 @@ class WidgetMetricResponse(BaseModel):
     value: float | None = None
     formatted: str | None = None
     unit: str | None = None
+    target: float | None = None
     series: list[MetricSeriesPoint] = Field(default_factory=list)
     comparison: dict | None = None
     stats: dict | None = None
+    matrix: dict | None = None
 
 
 class DashboardWidgetConfig(BaseModel):

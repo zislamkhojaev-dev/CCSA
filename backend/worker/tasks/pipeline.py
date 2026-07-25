@@ -130,6 +130,7 @@ def analyze_call(self, call_id: int, scenario_id: int | None = None) -> None:
                     summary=output.summary,
                     client_pains=output.client_pains,
                     call_outcome=output.call_outcome,
+                    topic=output.topic,
                     criteria_results=criteria_json,
                 )
             )
@@ -166,6 +167,79 @@ def retranscribe_call(call_id: int) -> None:
         call.error_message = None
         db.flush()
     transcribe_call.delay(call_id)
+
+
+@celery_app.task(name="worker.tasks.pipeline.backfill_topics", base=PipelineTask)
+def backfill_topics(limit: int = 200) -> dict:
+    """Classify topic for analyzed calls that have no topic yet (post-migration backfill)."""
+    import asyncio
+    import json
+
+    from sqlalchemy import or_, select
+
+    from app.models import Transcription
+    from app.services.llm import classify_topic
+    from app.services.quality_settings import DEFAULT_TAXONOMY, parse_topics, UNCLASSIFIED_TOPIC
+    from worker.llm_context import get_llm_kwargs
+    from worker.settings_sync import get_setting_sync
+
+    processed = 0
+    skipped = 0
+    errors = 0
+
+    with get_sync_session() as db:
+        kwargs = get_llm_kwargs(db)
+        llm_model = get_setting_sync(db, "llm_model", "gpt-4o-mini")
+        topics = parse_topics(
+            get_setting_sync(db, "call_topics", json.dumps(DEFAULT_TAXONOMY, ensure_ascii=False))
+        )
+        result_ids = list(
+            db.execute(
+                select(AnalysisResult.id)
+                .where(
+                    or_(
+                        AnalysisResult.topic.is_(None),
+                        AnalysisResult.topic == UNCLASSIFIED_TOPIC,
+                    )
+                )
+                .order_by(AnalysisResult.created_at.desc())
+                .limit(limit)
+            )
+            .scalars()
+            .all()
+        )
+
+    for result_id in result_ids:
+        try:
+            with get_sync_session() as db:
+                res = db.get(AnalysisResult, result_id)
+                if not res or (res.topic is not None and res.topic != UNCLASSIFIED_TOPIC):
+                    continue
+                trans = db.execute(
+                    select(Transcription)
+                    .where(Transcription.call_id == res.call_id)
+                    .order_by(Transcription.created_at.desc())
+                    .limit(1)
+                ).scalar_one_or_none()
+                if not trans or not trans.full_text:
+                    skipped += 1
+                    continue
+                topic = asyncio.run(
+                    classify_topic(trans.full_text, topics, model=llm_model, **kwargs)
+                )
+                res.topic = topic or UNCLASSIFIED_TOPIC
+                processed += 1
+        except Exception:
+            errors += 1
+            logger.exception("backfill_topics failed for analysis_result %s", result_id)
+
+    logger.info(
+        "backfill_topics done: processed=%s skipped=%s errors=%s",
+        processed,
+        skipped,
+        errors,
+    )
+    return {"processed": processed, "skipped": skipped, "errors": errors}
 
 
 @celery_app.task(name="worker.tasks.pipeline.process_pending_batch", base=PipelineTask)

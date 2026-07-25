@@ -1207,6 +1207,22 @@ tbody tr:last-child td {
   padding-bottom: 5rem;
 }
 
+.topic-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.topic-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.topic-row .form-input {
+  flex: 1;
+}
+
 .loading-page {
   display: flex;
   align-items: center;

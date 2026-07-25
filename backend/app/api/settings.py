@@ -13,11 +13,14 @@ from app.schemas.common import MessageOut
 from app.schemas.settings import (
     AutomationRuleOut,
     AutomationRuleUpdate,
+    QualitySettings,
+    QualitySettingsUpdate,
     SettingsModelsOut,
     SettingsUpdate,
     WebitelDbSettings,
     WebitelSettings,
 )
+from app.services.quality_settings import load_quality_config, normalize_config
 from app.services.settings_store import get_bool_setting, get_setting, set_setting
 
 
@@ -97,6 +100,47 @@ async def update_models_settings(
     if body.celery_worker_concurrency is not None:
         await set_setting(db, "celery_worker_concurrency", str(max(1, min(8, body.celery_worker_concurrency))))
     return MessageOut(message="Settings saved")
+
+
+@router.get("/quality", response_model=QualitySettings)
+async def get_quality_settings(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    cfg = await load_quality_config(db)
+    return QualitySettings(
+        threshold_good=cfg.threshold_good,
+        threshold_mid=cfg.threshold_mid,
+        target=cfg.target,
+        topics=cfg.topics,
+    )
+
+
+@router.put("/quality", response_model=QualitySettings)
+async def update_quality_settings(
+    body: QualitySettingsUpdate, db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)
+):
+    cfg = normalize_config(
+        threshold_good=body.threshold_good,
+        threshold_mid=body.threshold_mid,
+        target=body.target,
+        topics=body.topics,
+    )
+    await set_setting(db, "quality_threshold_good", str(cfg.threshold_good))
+    await set_setting(db, "quality_threshold_mid", str(cfg.threshold_mid))
+    await set_setting(db, "quality_target", str(cfg.target))
+    await set_setting(db, "call_topics", json.dumps(cfg.topics, ensure_ascii=False))
+    return QualitySettings(
+        threshold_good=cfg.threshold_good,
+        threshold_mid=cfg.threshold_mid,
+        target=cfg.target,
+        topics=cfg.topics,
+    )
+
+
+@router.post("/quality/backfill-topics", response_model=MessageOut)
+async def backfill_topics_endpoint(_: User = Depends(get_admin_user)):
+    from worker.tasks.pipeline import backfill_topics
+
+    backfill_topics.delay()
+    return MessageOut(message="Классификация тем запущена в фоне")
 
 
 @router.get("/webitel", response_model=WebitelSettings)

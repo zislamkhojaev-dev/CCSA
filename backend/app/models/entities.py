@@ -143,6 +143,7 @@ class AnalysisResult(Base):
     summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     client_pains: Mapped[str | None] = mapped_column(Text, nullable=True)
     call_outcome: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    topic: Mapped[str | None] = mapped_column(String(120), nullable=True)
     criteria_results: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 

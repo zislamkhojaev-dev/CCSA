@@ -25,6 +25,7 @@ from app.services.dashboard_export import (
 )
 from app.services.dashboard_filters import parse_dashboard_filters
 from app.services.dashboard_metrics import AVAILABLE_METRICS, fetch_widget_metric
+from app.services.quality_settings import load_quality_config
 from app.services.settings_store import get_setting, set_setting
 
 router = APIRouter()
@@ -126,6 +127,7 @@ async def widget_metric(
     date_to: str | None = Query(None, description="ISO date YYYY-MM-DD"),
     direction: str | None = Query(None, description="inbound | outbound"),
     operator_ids: list[int] | None = Query(None),
+    scenario_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -137,8 +139,10 @@ async def widget_metric(
         date_to=date_to,
         direction=direction,
         operator_ids=operator_ids,
+        scenario_id=scenario_id,
     )
-    return await fetch_widget_metric(db, metric, filters)
+    quality = await load_quality_config(db)
+    return await fetch_widget_metric(db, metric, filters, quality)
 
 
 @router.get("/export")
@@ -149,6 +153,7 @@ async def export_dashboard(
     date_to: str | None = Query(None, description="ISO date YYYY-MM-DD"),
     direction: str | None = Query(None, description="inbound | outbound"),
     operator_ids: list[int] | None = Query(None),
+    scenario_id: int | None = Query(None),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -158,9 +163,11 @@ async def export_dashboard(
         date_to=date_to,
         direction=direction,
         operator_ids=operator_ids,
+        scenario_id=scenario_id,
     )
     widgets = await _load_user_widgets(db, user.id)
-    payload = await build_dashboard_export(db, widgets, filters)
+    quality = await load_quality_config(db)
+    payload = await build_dashboard_export(db, widgets, filters, quality)
     filename = dashboard_export_filename(ext=format)
 
     if format == "csv":

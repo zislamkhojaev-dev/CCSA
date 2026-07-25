@@ -23,6 +23,21 @@ DEFAULT_SETTINGS = {
     "asr_http_timeout_sec": "600",
     "playground_sequential": "true",
     "celery_worker_concurrency": "1",
+    "quality_threshold_good": "80",
+    "quality_threshold_mid": "50",
+    "quality_target": "85",
+    "call_topics": json.dumps(
+        [
+            "Оформление заказа",
+            "Консультация",
+            "Статус заказа",
+            "Жалоба",
+            "Возврат / обмен",
+            "Техническая поддержка",
+            "Спам / ошибочный",
+        ],
+        ensure_ascii=False,
+    ),
 }
 
 
