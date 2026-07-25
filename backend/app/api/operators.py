@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Query
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -6,7 +8,16 @@ from app.core.deps import get_current_user
 from app.database import get_db
 from app.models import AnalysisResult, Call, Operator, User
 from app.schemas.common import Paginated
-from app.schemas.operators import OperatorOut
+from app.schemas.operators import OperatorOut, OperatorSyncOut
+from app.services.operator_sync import (
+    OPERATOR_LOOKBACK_DAYS,
+    extract_operators,
+    operator_lookback_start,
+)
+from app.services.settings_store import get_setting
+from app.services.webitel import WebitelClient
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -45,9 +56,48 @@ async def list_operators(
     return Paginated(items=items, total=total, page=page, page_size=page_size)
 
 
-@router.post("/sync", response_model=dict)
-async def sync_operators(_: User = Depends(get_current_user)):
-    from worker.tasks.webitel import sync_operators_from_webitel
+@router.post("/sync", response_model=OperatorSyncOut)
+async def sync_operators(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    """Import operators from recent Webitel call history.
 
-    sync_operators_from_webitel.delay()
-    return {"message": "Operator sync queued"}
+    Runs inline rather than as a background task so the UI can report how many
+    operators were actually added instead of just "queued".
+    """
+    api_url = await get_setting(db, "webitel_api_url")
+    if not api_url:
+        raise HTTPException(
+            status_code=400,
+            detail="Webitel не настроен — укажите URL в «Настройки → Коннекторы»",
+        )
+    token = await get_setting(db, "webitel_access_token")
+
+    try:
+        items = await WebitelClient(api_url, token).fetch_call_history(
+            created_from=operator_lookback_start()
+        )
+    except Exception as e:
+        logger.warning("Operator sync failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Webitel недоступен: {e}") from e
+
+    pairs = extract_operators(items)
+    created = 0
+    for webitel_id, full_name in pairs:
+        exists = await db.scalar(select(Operator.id).where(Operator.webitel_id == webitel_id))
+        if exists:
+            continue
+        db.add(Operator(webitel_id=webitel_id, full_name=full_name, is_active=True))
+        created += 1
+    await db.commit()
+
+    if created:
+        message = f"Добавлено операторов: {created} (найдено в Webitel: {len(pairs)})"
+    elif pairs:
+        message = f"Новых операторов нет — все {len(pairs)} уже в списке"
+    else:
+        message = (
+            f"В истории Webitel за последние {OPERATOR_LOOKBACK_DAYS} дней операторы не найдены"
+        )
+
+    return OperatorSyncOut(
+        message=message, created=created, found=len(pairs), calls_scanned=len(items)
+    )

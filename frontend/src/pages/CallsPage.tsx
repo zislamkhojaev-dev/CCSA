@@ -570,11 +570,22 @@ export default function CallsPage() {
           >
             Вперёд
           </button>
-          <select value={pageSize} onChange={(e) => { setPageSize(Number(e.target.value)); setPage(1); }}>
-            <option value={20}>20</option>
-            <option value={50}>50</option>
-            <option value={100}>100</option>
-          </select>
+          <label className="pagination-page-size">
+            <span className="pagination-page-size-label">На странице</span>
+            <select
+              className="form-input"
+              value={pageSize}
+              onChange={(e) => {
+                setPageSize(Number(e.target.value));
+                setPage(1);
+              }}
+              aria-label="Количество на странице"
+            >
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </label>
         </div>
       </div>
     </>

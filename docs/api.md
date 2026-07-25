@@ -39,6 +39,10 @@
 | GET | `/dashboard/metrics?metric=…&period_days=30` | Данные виджета |
 | GET | `/dashboard/metrics/available` | Список метрик |
 | GET/PUT | `/dashboard/layout` | Layout конструктора (per user) |
+| GET | `/dashboard/export?format=json\|csv` | Экспорт виджетов с учётом фильтров |
+
+В JSON-экспорте есть `filters` (сырые параметры) и `filter_summary` (человекочитаемые
+период/сценарий/направление/операторы). В CSV те же сведения — в комментариях `#` в шапке файла.
 
 ### Scenarios
 
@@ -140,7 +144,16 @@ POST /research
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | `/operators` | Список |
-| POST | `/operators/sync` | Синхронизация |
+| POST | `/operators/sync` | Обновление списка операторов из истории звонков Webitel за 7 дней |
+
+`POST /operators/sync` выполняется синхронно и возвращает результат, а не факт постановки в очередь:
+
+```json
+{ "message": "Добавлено операторов: 3 (найдено в Webitel: 12)", "created": 3, "found": 12, "calls_scanned": 100 }
+```
+
+- `400` — не задан `webitel_api_url` в настройках коннектора;
+- `502` — Webitel недоступен или вернул ошибку (текст ошибки в `detail`).
 
 ### Health
 

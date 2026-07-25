@@ -11,3 +11,10 @@ class OperatorOut(BaseModel):
     avg_score: float | None = None
 
     model_config = {"from_attributes": True}
+
+
+class OperatorSyncOut(BaseModel):
+    message: str
+    created: int = 0
+    found: int = 0
+    calls_scanned: int = 0

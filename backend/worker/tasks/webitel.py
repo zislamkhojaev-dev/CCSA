@@ -137,23 +137,32 @@ def sync_webitel_calls(self) -> None:
 
 
 @celery_app.task(name="worker.tasks.webitel.sync_operators_from_webitel", base=WebitelTask)
-def sync_operators_from_webitel() -> None:
+def sync_operators_from_webitel() -> dict:
+    from app.services.operator_sync import extract_operators, operator_lookback_start
+
     with get_sync_session() as db:
         api_url = get_setting_sync(db, "webitel_api_url")
         token = get_setting_sync(db, "webitel_access_token")
         if not api_url:
-            return
+            logger.info("Operator sync skipped: Webitel API URL is not configured")
+            return {"created": 0, "found": 0}
         client = WebitelClient(api_url, token)
         try:
-            items = asyncio.run(client.fetch_call_history(created_from=datetime.utcnow() - timedelta(days=7)))
-        except Exception:
-            return
-        seen = set()
-        for item in items:
-            wid = str(item.get("agent_id") or item.get("user_id") or "")
-            name = item.get("agent_name") or item.get("user_name")
-            if not wid or wid in seen or not name:
+            items = asyncio.run(client.fetch_call_history(created_from=operator_lookback_start()))
+        except Exception as e:
+            logger.warning("Operator sync failed: %s", e)
+            return {"created": 0, "found": 0}
+
+        pairs = extract_operators(items)
+        created = 0
+        for webitel_id, full_name in pairs:
+            exists = db.execute(
+                select(Operator.id).where(Operator.webitel_id == webitel_id)
+            ).scalar_one_or_none()
+            if exists:
                 continue
-            seen.add(wid)
-            if not db.execute(select(Operator).where(Operator.webitel_id == wid)).scalar_one_or_none():
-                db.add(Operator(webitel_id=wid, full_name=name, is_active=True))
+            db.add(Operator(webitel_id=webitel_id, full_name=full_name, is_active=True))
+            created += 1
+
+    logger.info("Operator sync done: created=%s found=%s", created, len(pairs))
+    return {"created": created, "found": len(pairs)}

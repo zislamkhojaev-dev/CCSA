@@ -848,6 +848,11 @@ tbody tr:last-child td {
   }
 }
 
+/* Rotate an icon in place while an action is running. */
+.icon-spin {
+  animation: ds-spin 0.9s linear infinite;
+}
+
 .empty {
   text-align: center;
   padding: var(--space-10);
@@ -856,9 +861,32 @@ tbody tr:last-child td {
 
 .pagination {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--space-3);
   margin-top: var(--space-4);
+}
+
+.pagination-page-size {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.pagination-page-size-label {
+  font-size: var(--text-sm);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.pagination-page-size .form-input {
+  width: auto;
+  min-width: 4.5rem;
+  height: var(--control-h-sm);
+  min-height: var(--control-h-sm);
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
 }
 
 /* ---------- Modal ---------- */
@@ -925,6 +953,15 @@ tbody tr:last-child td {
   font-size: var(--text-sm);
   color: var(--muted);
   line-height: var(--leading-normal);
+}
+
+/* Status colours must survive being combined with .form-hint. */
+.form-hint.text-error {
+  color: var(--red);
+}
+
+.form-hint.text-success {
+  color: var(--green);
 }
 
 .form-hint code {
@@ -1384,12 +1421,15 @@ table a:hover {
   gap: var(--space-4);
 }
 
+/* Scenario sits left, period group right-aligned (dates first, then preset).
+   The group never wraps internally: if it doesn't fit, it drops to its own row. */
 .dash-filters-period-group {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: flex-end;
+  justify-content: flex-end;
   gap: var(--space-3);
-  flex: 1 1 16rem;
+  margin-left: auto;
   min-width: 0;
 }
 
@@ -1397,6 +1437,11 @@ table a:hover {
   flex: 1 1 12rem;
   min-width: 10rem;
   max-width: 20rem;
+}
+
+.dash-filter-period {
+  flex: 0 0 auto;
+  min-width: 9rem;
 }
 
 .dash-filter-date {
@@ -1421,6 +1466,11 @@ table a:hover {
   min-height: var(--control-h-sm);
   padding: 0 var(--space-2);
   font-size: var(--text-sm);
+}
+
+/* Date inputs default to the taller control height; keep the row aligned. */
+.dash-filter-control[type="date"] {
+  min-height: var(--control-h-sm);
 }
 
 .dash-filters .searchable-select-input {
@@ -1448,6 +1498,11 @@ table a:hover {
 
   .dash-filter-scenario {
     max-width: none;
+  }
+
+  .dash-filters-period-group {
+    margin-left: 0;
+    justify-content: flex-start;
   }
 }
 

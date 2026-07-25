@@ -20,23 +20,24 @@ export default function DashboardFiltersPanel({ filters, onChange }: Props) {
   return (
     <div className="card dash-filters">
       <div className="dash-filters-bar">
+        <div className="filter-field dash-filter-scenario">
+          <label htmlFor="dash-filter-scenario">Сценарий</label>
+          <select
+            id="dash-filter-scenario"
+            className="form-input dash-filter-control"
+            value={filters.scenarioId ?? ""}
+            onChange={(e) => set({ scenarioId: e.target.value ? Number(e.target.value) : null })}
+          >
+            <option value="">Все сценарии</option>
+            {scenarios?.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="dash-filters-period-group">
-          <div className="filter-field">
-            <label htmlFor="dash-filter-period">Период</label>
-            <select
-              id="dash-filter-period"
-              className="form-input dash-filter-control"
-              value={filters.periodMode}
-              onChange={(e) => set({ periodMode: e.target.value as DashboardPeriodMode })}
-            >
-              {DASHBOARD_PERIOD_PRESETS.map((d) => (
-                <option key={d} value={String(d)}>
-                  {d} дней
-                </option>
-              ))}
-              <option value="custom">Свой период</option>
-            </select>
-          </div>
           {filters.periodMode === "custom" && (
             <>
               <div className="filter-field dash-filter-date">
@@ -61,23 +62,22 @@ export default function DashboardFiltersPanel({ filters, onChange }: Props) {
               </div>
             </>
           )}
-        </div>
-
-        <div className="filter-field dash-filter-scenario">
-          <label htmlFor="dash-filter-scenario">Сценарий</label>
-          <select
-            id="dash-filter-scenario"
-            className="form-input dash-filter-control"
-            value={filters.scenarioId ?? ""}
-            onChange={(e) => set({ scenarioId: e.target.value ? Number(e.target.value) : null })}
-          >
-            <option value="">Все сценарии</option>
-            {scenarios?.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}
-              </option>
-            ))}
-          </select>
+          <div className="filter-field dash-filter-period">
+            <label htmlFor="dash-filter-period">Период</label>
+            <select
+              id="dash-filter-period"
+              className="form-input dash-filter-control"
+              value={filters.periodMode}
+              onChange={(e) => set({ periodMode: e.target.value as DashboardPeriodMode })}
+            >
+              {DASHBOARD_PERIOD_PRESETS.map((d) => (
+                <option key={d} value={String(d)}>
+                  {d} дней
+                </option>
+              ))}
+              <option value="custom">Свой период</option>
+            </select>
+          </div>
         </div>
       </div>
     </div>
