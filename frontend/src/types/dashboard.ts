@@ -9,6 +9,10 @@ export type WidgetType =
   | "trend"
   | "heatmap";
 
+export type WidgetWidth = 1 | 2 | 3 | 4;
+export type WidgetHeight = 1 | 2;
+
+/** @deprecated Legacy preset; migrated to width/height on load. */
 export type WidgetSize = "small" | "medium" | "large";
 
 export type DashboardWidget = {
@@ -17,7 +21,10 @@ export type DashboardWidget = {
   title: string;
   metric: string;
   compare_metric?: string | null;
-  size: WidgetSize;
+  width: WidgetWidth;
+  height: WidgetHeight;
+  /** @deprecated Present in saved layouts; ignored after normalizeWidget(). */
+  size?: WidgetSize;
 };
 
 export type DashboardLayout = {
@@ -152,33 +159,79 @@ export function usesCategoryBars(metric: string, type: WidgetType): boolean {
   return type === "bars" && CATEGORY_BAR_METRICS.has(metric);
 }
 
+const LEGACY_SIZE_TO_DIM: Record<WidgetSize, { width: WidgetWidth; height: WidgetHeight }> = {
+  small: { width: 1, height: 1 },
+  medium: { width: 2, height: 1 },
+  large: { width: 4, height: 2 },
+};
+
+export function clampWidgetWidth(value: unknown): WidgetWidth {
+  const n = Number(value);
+  if (n >= 4) return 4;
+  if (n >= 3) return 3;
+  if (n >= 2) return 2;
+  return 1;
+}
+
+export function clampWidgetHeight(value: unknown): WidgetHeight {
+  const n = Number(value);
+  return n >= 2 ? 2 : 1;
+}
+
+/** Normalize API payloads and legacy layouts to width/height grid units. */
+export function normalizeWidget(widget: DashboardWidget): DashboardWidget {
+  if (widget.width != null && widget.height != null) {
+    return {
+      ...widget,
+      width: clampWidgetWidth(widget.width),
+      height: clampWidgetHeight(widget.height),
+    };
+  }
+  const legacy = widget.size ? LEGACY_SIZE_TO_DIM[widget.size] : LEGACY_SIZE_TO_DIM.medium;
+  const { size: _size, ...rest } = widget;
+  return {
+    ...rest,
+    width: legacy.width,
+    height: legacy.height,
+  };
+}
+
+export function normalizeLayout(layout: DashboardLayout): DashboardLayout {
+  return { widgets: layout.widgets.map(normalizeWidget) };
+}
+
 /**
  * Recommended grid footprint per metric + visualization.
- * KPI/scalars → small; trends/comparisons/distributions → medium; lists/heatmaps → large.
+ * Grid is 4 columns wide; height is 1 or 2 row units.
  */
-export function suggestedWidgetSize(metric: string, type?: WidgetType): WidgetSize {
+export function suggestedWidgetDimensions(
+  metric: string,
+  type?: WidgetType
+): { width: WidgetWidth; height: WidgetHeight } {
   const visualization = type ?? defaultWidgetType(metric);
 
-  if (visualization === "heatmap") return "large";
+  if (visualization === "heatmap") return { width: 4, height: 2 };
 
   if (visualization === "kpi" || visualization === "count" || visualization === "percent") {
-    return "small";
+    return { width: 1, height: 1 };
   }
 
   if (visualization === "stat") {
-    return metric === "duration_total" ? "medium" : "small";
+    return metric === "duration_total" || metric === "duration_avg"
+      ? { width: 2, height: 1 }
+      : { width: 1, height: 1 };
   }
 
-  if (visualization === "comparison") return "medium";
+  if (visualization === "comparison") return { width: 2, height: 1 };
 
   if (metric === "calls_by_day") {
-    return visualization === "trend" ? "large" : "medium";
+    return visualization === "trend" ? { width: 4, height: 2 } : { width: 2, height: 1 };
   }
 
-  if (metric === "score_by_day") return "medium";
+  if (metric === "score_by_day") return { width: 2, height: 1 };
 
   if (metric === "score_distribution" || metric === "duration_distribution") {
-    return "medium";
+    return { width: 4, height: 2 };
   }
 
   if (
@@ -186,7 +239,7 @@ export function suggestedWidgetSize(metric: string, type?: WidgetType): WidgetSi
     metric === "score_by_topic" ||
     metric === "criteria_pass_rate"
   ) {
-    return "large";
+    return { width: 4, height: 2 };
   }
 
   if (
@@ -195,58 +248,65 @@ export function suggestedWidgetSize(metric: string, type?: WidgetType): WidgetSi
     metric === "operators_top_best" ||
     metric === "operators_top_worst"
   ) {
-    return "medium";
+    return { width: 2, height: 2 };
   }
 
   if (visualization === "trend" || visualization === "chart" || visualization === "bars") {
-    return "medium";
+    return { width: 2, height: 1 };
   }
 
-  return "small";
+  return { width: 1, height: 1 };
 }
 
-export const WIDGET_SIZE_LABELS: Record<WidgetSize, string> = {
-  small: "Малый — KPI / одно число",
-  medium: "Средний — график или рейтинг",
-  large: "Большой — списки, темы, heatmap",
-};
+export function formatWidgetDimensions(width: WidgetWidth, height: WidgetHeight): string {
+  const widthLabel =
+    width === 1 ? "¼ экрана" : width === 2 ? "½ экрана" : width === 3 ? "¾ экрана" : "на всю ширину";
+  const heightLabel = height === 2 ? "высокий (×2)" : "стандартный (×1)";
+  return `${widthLabel}, ${heightLabel}`;
+}
 
 /** Human-readable spec for widget editor hints. */
 export function widgetSizeHint(metric: string, type: WidgetType): string {
-  return WIDGET_SIZE_LABELS[suggestedWidgetSize(metric, type)];
+  const { width, height } = suggestedWidgetDimensions(metric, type);
+  return formatWidgetDimensions(width, height);
 }
 
-export const DEFAULT_LAYOUT: DashboardLayout = {
+export const DEFAULT_LAYOUT: DashboardLayout = normalizeLayout({
   widgets: [
-    { id: "w1", type: "count", title: "Всего звонков", metric: "calls_total", size: "small" },
-    { id: "w2", type: "count", title: "Проанализировано", metric: "calls_analyzed", size: "small" },
-    { id: "w3", type: "kpi", title: "Средний балл", metric: "score_avg", size: "small" },
-    { id: "w4", type: "count", title: "Нарушения", metric: "violations_count", size: "small" },
-    { id: "w5", type: "percent", title: "Покрытие", metric: "coverage", size: "small" },
+    { id: "w1", type: "count", title: "Всего звонков", metric: "calls_total", width: 1, height: 1 },
+    { id: "w2", type: "count", title: "Проанализировано", metric: "calls_analyzed", width: 1, height: 1 },
+    { id: "w3", type: "kpi", title: "Средний балл", metric: "score_avg", width: 1, height: 1 },
+    { id: "w4", type: "count", title: "Нарушения", metric: "violations_count", width: 1, height: 1 },
+    { id: "w5", type: "percent", title: "Покрытие", metric: "coverage", width: 1, height: 1 },
     {
       id: "w6",
       type: "trend",
       title: "Звонки по дням",
       metric: "calls_by_day",
-      size: "large",
+      width: 4,
+      height: 2,
     },
     {
       id: "w7",
       type: "chart",
       title: "Распределение оценок",
       metric: "score_distribution",
-      size: "medium",
+      width: 4,
+      height: 2,
     },
   ],
-};
+});
 
 export function newWidgetId(): string {
   return `w_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
 }
 
-/** CSS class for grid footprint on `.dash-sortable-item` (direct grid child). */
-export function widgetGridSizeClass(size: WidgetSize): string {
-  if (size === "large") return "dash-sortable-item--large";
-  if (size === "medium") return "dash-sortable-item--medium";
-  return "dash-sortable-item--small";
+/** CSS classes for grid footprint on `.dash-sortable-item`. */
+export function widgetGridClasses(width: WidgetWidth, height: WidgetHeight): string {
+  return `dash-sortable-item--w-${width} dash-sortable-item--h-${height}`;
+}
+
+/** CSS classes for widget card styling (width/height footprint). */
+export function widgetCardClasses(width: WidgetWidth, height: WidgetHeight): string {
+  return `dash-widget--w-${width} dash-widget--h-${height}`;
 }

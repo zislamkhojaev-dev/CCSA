@@ -86,4 +86,42 @@ class NoteOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CallExportFilters(BaseModel):
+    status_filter: str | None = None
+    operator_match: str | None = None
+    operator_value: str | None = None
+    client_match: str | None = None
+    client_value: str | None = None
+    date_from: str | None = None
+    date_to: str | None = None
+    duration_op: str | None = None
+    duration_value: int | None = None
+    score_op: str | None = None
+    score_value: int | None = None
+    tag_id: int | None = None
+
+
+class CallExportSyncBody(BaseModel):
+    format: str = Field(pattern="^(json|csv)$")
+    ids: list[int] = Field(min_length=1)
+
+
+class CallExportJobCreate(BaseModel):
+    format: str = Field(pattern="^(json|csv)$")
+    filters: CallExportFilters = Field(default_factory=CallExportFilters)
+
+
+class CallExportJobOut(BaseModel):
+    id: int
+    format: str
+    status: str
+    message: str | None = None
+    row_count: int = 0
+    error_message: str | None = None
+    created_at: datetime | None = None
+    finished_at: datetime | None = None
+
+    model_config = {"from_attributes": True}
+
+
 CallDetailOut.model_rebuild()

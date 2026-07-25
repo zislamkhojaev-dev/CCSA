@@ -1,3 +1,5 @@
+import asyncio
+import json
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
@@ -5,15 +7,45 @@ from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sse_starlette.sse import EventSourceResponse
 
 from app.core.deps import get_current_user
 from app.database import get_db
-from app.models import AnalysisResult, Call, CallTag, Operator, Scenario, SupervisorNote, Tag, Transcription, User
-from app.schemas.calls import CallBulkDelete, CallDetailOut, CallListItem, CallTagsUpdate, NoteCreate, NoteOut
+from app.models import (
+    AnalysisResult,
+    Call,
+    CallExportJob,
+    CallTag,
+    Operator,
+    Scenario,
+    SupervisorNote,
+    Tag,
+    Transcription,
+    User,
+)
+from app.schemas.calls import (
+    CallBulkDelete,
+    CallDetailOut,
+    CallExportJobCreate,
+    CallExportJobOut,
+    CallExportSyncBody,
+    CallListItem,
+    CallTagsUpdate,
+    NoteCreate,
+    NoteOut,
+)
 from app.schemas.tags import TagOut
 from app.schemas.common import MessageOut, Paginated
 from app.services.call_query import build_calls_count_query, build_calls_list_query
 from app.services.call_utils import duration_seconds_from_utterances
+from app.services.calls_export import (
+    CALLS_EXPORT_MAX_ROWS,
+    CALLS_EXPORT_SYNC_MAX_IDS,
+    count_export_rows_async,
+    encode_export_file,
+    fetch_export_rows_async,
+)
+from app.services.redis_events import subscribe_call_export_events
 from app.services.storage import storage_service
 
 router = APIRouter()
@@ -139,6 +171,147 @@ async def bulk_delete_calls(
         await db.delete(call)
     await db.commit()
     return MessageOut(message=f"Deleted {len(calls)} call(s)")
+
+
+@router.post("/export")
+async def export_calls_sync(
+    body: CallExportSyncBody,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Synchronous export of selected call ids (immediate download)."""
+    if len(body.ids) > CALLS_EXPORT_SYNC_MAX_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Слишком много звонков для мгновенного экспорта (макс. {CALLS_EXPORT_SYNC_MAX_IDS})",
+        )
+    rows = await fetch_export_rows_async(db, ids=body.ids)
+    if not rows:
+        raise HTTPException(status_code=404, detail="Звонки не найдены")
+    content, media_type, filename = encode_export_file(rows, body.format)
+    return Response(
+        content=content,
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/export/jobs", response_model=CallExportJobOut)
+async def create_call_export_job(
+    body: CallExportJobCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Queue an async export for calls matching filters."""
+    total = await count_export_rows_async(db, body.filters)
+    if total == 0:
+        raise HTTPException(status_code=400, detail="По выбранным фильтрам звонков нет")
+    if total > CALLS_EXPORT_MAX_ROWS:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Слишком много звонков ({total}). Сузьте фильтры "
+                f"(лимит {CALLS_EXPORT_MAX_ROWS})"
+            ),
+        )
+
+    job = CallExportJob(
+        user_id=user.id,
+        format=body.format,
+        filters_json=body.filters.model_dump(),
+        status="pending",
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    from worker.tasks.calls_export import run_calls_export
+
+    run_calls_export.delay(job.id)
+    return CallExportJobOut(
+        id=job.id,
+        format=job.format,
+        status=job.status,
+        message="Задача на экспорт создана",
+        row_count=0,
+        created_at=job.created_at,
+    )
+
+
+async def _get_owned_export_job(db: AsyncSession, job_id: int, user: User) -> CallExportJob:
+    job = await db.get(CallExportJob, job_id)
+    if not job or job.user_id != user.id:
+        raise HTTPException(status_code=404, detail="Задача экспорта не найдена")
+    return job
+
+
+@router.get("/export/jobs/{job_id}", response_model=CallExportJobOut)
+async def get_call_export_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    job = await _get_owned_export_job(db, job_id, user)
+    return CallExportJobOut(
+        id=job.id,
+        format=job.format,
+        status=job.status,
+        message=None,
+        row_count=job.row_count,
+        error_message=job.error_message,
+        created_at=job.created_at,
+        finished_at=job.finished_at,
+    )
+
+
+@router.get("/export/jobs/{job_id}/events")
+async def call_export_job_events(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    await _get_owned_export_job(db, job_id, user)
+
+    async def generator():
+        pubsub = subscribe_call_export_events(job_id)
+        try:
+            while True:
+                message = await asyncio.to_thread(pubsub.get_message, timeout=30.0)
+                if message and message["type"] == "message":
+                    yield {"event": "status", "data": message["data"]}
+                    data = json.loads(message["data"])
+                    if data.get("done"):
+                        break
+                else:
+                    yield {"event": "ping", "data": "{}"}
+        finally:
+            pubsub.unsubscribe()
+
+    return EventSourceResponse(generator())
+
+
+@router.get("/export/jobs/{job_id}/download")
+async def download_call_export_job(
+    job_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    job = await _get_owned_export_job(db, job_id, user)
+    if job.status != "completed" or not job.storage_path:
+        raise HTTPException(status_code=400, detail="Файл экспорта ещё не готов")
+    try:
+        content = storage_service.download_bytes(job.storage_path)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Не удалось прочитать файл: {e}") from e
+
+    ext = "csv" if job.format == "csv" else "json"
+    media = "text/csv; charset=utf-8" if ext == "csv" else "application/json; charset=utf-8"
+    filename = f"calls-export-{job.id}.{ext}"
+    return Response(
+        content=content,
+        media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/{call_id}", response_model=CallDetailOut)

@@ -25,6 +25,11 @@ class StorageService:
 
     def upload_bytes(self, data: bytes, prefix: str, filename: str, content_type: str = "audio/mpeg") -> str:
         key = f"{prefix}/{uuid.uuid4().hex}_{filename}"
+        self.put_bytes(key, data, content_type=content_type)
+        return key
+
+    def put_bytes(self, key: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+        """Upload bytes to an exact object key (no random prefix)."""
         self.client.put_object(
             self.bucket,
             key,

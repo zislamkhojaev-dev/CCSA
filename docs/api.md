@@ -21,6 +21,11 @@
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET | `/calls` | Список (пагинация, фильтры) |
+| POST | `/calls/export` | Синхронный экспорт выделенных ids → файл JSON/CSV |
+| POST | `/calls/export/jobs` | Создать фоновую выгрузку по фильтрам |
+| GET | `/calls/export/jobs/{id}` | Статус задачи экспорта |
+| GET | `/calls/export/jobs/{id}/events` | SSE прогресс (завершение / ошибка) |
+| GET | `/calls/export/jobs/{id}/download` | Скачать готовый файл |
 | GET | `/calls/{id}` | Детали + транскрипт + анализ |
 | PATCH | `/calls/{id}/tags` | Теги |
 | POST | `/calls/{id}/notes` | Заметка |
@@ -31,6 +36,15 @@
 `409` на `retranscribe` / `reanalyze` означает, что звонок **прямо сейчас** обрабатывается
 (проверяется Redis-лок, а не статус в БД).
 
+**Экспорт звонков** (расширенные поля: таблица + `topic`, `summary`, `call_outcome`, `tags`;
+без транскрипта):
+
+- `POST /calls/export` — тело `{ "format": "csv"|"json", "ids": [1,2] }`, ответ сразу файл
+  (лимит ids: `CALLS_EXPORT_SYNC_MAX_IDS`, по умолчанию 1000);
+- `POST /calls/export/jobs` — тело `{ "format", "filters": { …как у списка } }`, лимит выборки
+  `CALLS_EXPORT_MAX_ROWS` (5000). При превышении — `400`. Задача Celery пишет файл в MinIO;
+  фронт ждёт SSE/`GET` и скачивает через `/download`.
+
 ### Dashboard
 
 | Метод | Путь | Описание |
@@ -39,10 +53,13 @@
 | GET | `/dashboard/metrics?metric=…&period_days=30` | Данные виджета |
 | GET | `/dashboard/metrics/available` | Список метрик |
 | GET/PUT | `/dashboard/layout` | Layout конструктора (per user) |
+
+Виджет layout: `{ id, type, title, metric, width: 1–4, height: 1–2 }` (legacy `size`
+мигрируется автоматически).
 | GET | `/dashboard/export?format=json\|csv` | Экспорт виджетов с учётом фильтров |
 
 В JSON-экспорте есть `filters` (сырые параметры) и `filter_summary` (человекочитаемые
-период/сценарий/направление/операторы). В CSV те же сведения — в комментариях `#` в шапке файла.
+период и сценарий — то, что задаётся в UI). В CSV те же сведения — в комментариях `#` в шапке файла.
 
 ### Scenarios
 

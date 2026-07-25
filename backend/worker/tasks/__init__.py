@@ -1,3 +1,3 @@
-from worker.tasks import pipeline, playground, research, webitel
+from worker.tasks import calls_export, pipeline, playground, research, webitel
 
-__all__ = ["pipeline", "playground", "research", "webitel"]
+__all__ = ["calls_export", "pipeline", "playground", "research", "webitel"]

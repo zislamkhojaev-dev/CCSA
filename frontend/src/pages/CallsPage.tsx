@@ -6,7 +6,19 @@ import { api } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
 import { fetchTagOptions } from "../components/TagMultiPicker.utils";
 import ScoreBadge from "../components/ScoreBadge";
+import DashboardExportMenu from "../components/dashboard/DashboardExportMenu";
+import CallsExportFiltersModal, {
+  type CallsFilterDraft,
+} from "../components/calls/CallsExportFiltersModal";
 import { callStatusLabel } from "../utils/callStatus";
+import {
+  downloadCallsExportJob,
+  downloadSelectedCallsExport,
+  startCallsExportJob,
+  waitForCallsExportJob,
+  type CallExportFiltersPayload,
+  type CallExportFormat,
+} from "../utils/callsExport";
 
 type CallItem = {
   id: number;
@@ -304,21 +316,124 @@ export default function CallsPage() {
     deleteMutation.mutate([...selected]);
   };
 
+  const [exporting, setExporting] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
+  const [exportFormat, setExportFormat] = useState<CallExportFormat>("csv");
+  const [exportBusy, setExportBusy] = useState(false);
+  const [exportStatus, setExportStatus] = useState<{ text: string; error: boolean } | null>(null);
+
+  const exportFilterDraft: CallsFilterDraft = useMemo(
+    () => ({
+      statusFilter,
+      operatorMatch: operatorMatch || "contains",
+      operatorValue,
+      clientMatch: clientMatch || "contains",
+      clientValue,
+      dateFrom,
+      dateTo,
+      durationOp: durationOp || "gt",
+      durationValue,
+      scoreOp: scoreOp || "eq",
+      scoreValue,
+      tagId,
+    }),
+    [
+      statusFilter,
+      operatorMatch,
+      operatorValue,
+      clientMatch,
+      clientValue,
+      dateFrom,
+      dateTo,
+      durationOp,
+      durationValue,
+      scoreOp,
+      scoreValue,
+      tagId,
+    ],
+  );
+
+  const handleExportPick = async (format: CallExportFormat) => {
+    if (selected.size > 0) {
+      setExporting(true);
+      try {
+        await downloadSelectedCallsExport([...selected], format);
+      } catch (e: unknown) {
+        alert(e instanceof Error ? e.message : "Ошибка экспорта");
+      } finally {
+        setExporting(false);
+      }
+      return;
+    }
+    setExportFormat(format);
+    setExportStatus(null);
+    setExportModalOpen(true);
+  };
+
+  const handleExportJobSubmit = async (filters: CallExportFiltersPayload) => {
+    setExportBusy(true);
+    setExportStatus({ text: "Задача на экспорт создана…", error: false });
+    try {
+      const job = await startCallsExportJob(exportFormat, filters);
+      setExportStatus({
+        text: job.message || "Задача на экспорт создана. Ожидаем файл…",
+        error: false,
+      });
+      const result = await waitForCallsExportJob(job.id);
+      if (result.status === "error") {
+        setExportStatus({ text: result.error || "Ошибка экспорта", error: true });
+        return;
+      }
+      setExportStatus({ text: "Готово, скачиваем файл…", error: false });
+      await downloadCallsExportJob(job.id, exportFormat);
+      setExportStatus({
+        text: `Скачано звонков: ${result.row_count ?? "—"}`,
+        error: false,
+      });
+    } catch (e: unknown) {
+      setExportStatus({
+        text: e instanceof Error ? e.message : "Ошибка экспорта",
+        error: true,
+      });
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
   return (
     <>
       <div className="page-header">
         <h1 className="page-title">Звонки</h1>
-        {selected.size > 0 && (
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={deleteMutation.isPending}
-            onClick={handleDelete}
-          >
-            {deleteMutation.isPending ? "Удаление…" : `Удалить (${selected.size})`}
-          </button>
-        )}
+        <div className="dash-toolbar-actions">
+          <DashboardExportMenu onExport={handleExportPick} exporting={exporting || exportBusy} />
+          {selected.size > 0 && (
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={deleteMutation.isPending}
+              onClick={handleDelete}
+            >
+              {deleteMutation.isPending ? "Удаление…" : `Удалить (${selected.size})`}
+            </button>
+          )}
+        </div>
       </div>
+
+      <CallsExportFiltersModal
+        open={exportModalOpen}
+        format={exportFormat}
+        initial={exportFilterDraft}
+        busy={exportBusy}
+        statusText={exportStatus?.text ?? null}
+        statusError={exportStatus?.error}
+        onClose={() => {
+          if (!exportBusy) {
+            setExportModalOpen(false);
+            setExportStatus(null);
+          }
+        }}
+        onSubmit={handleExportJobSubmit}
+      />
 
       <div className={`card calls-filters${filtersOpen ? " calls-filters--open" : ""}`}>
         <div className="calls-filters-header">

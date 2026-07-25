@@ -3,12 +3,16 @@ import {
   METRIC_OPTIONS,
   WIDGET_TYPES,
   allowedWidgetTypes,
+  clampWidgetHeight,
+  clampWidgetWidth,
   defaultWidgetType,
-  suggestedWidgetSize,
+  formatWidgetDimensions,
+  suggestedWidgetDimensions,
   widgetSizeHint,
   type DashboardWidget,
-  type WidgetSize,
+  type WidgetHeight,
   type WidgetType,
+  type WidgetWidth,
 } from "../../types/dashboard";
 
 type Props = {
@@ -17,11 +21,24 @@ type Props = {
   onClose: () => void;
 };
 
+const WIDTH_OPTIONS: { value: WidgetWidth; label: string }[] = [
+  { value: 1, label: "1 — ¼ ширины" },
+  { value: 2, label: "2 — ½ ширины" },
+  { value: 3, label: "3 — ¾ ширины" },
+  { value: 4, label: "4 — на всю ширину" },
+];
+
+const HEIGHT_OPTIONS: { value: WidgetHeight; label: string }[] = [
+  { value: 1, label: "1 — стандартная" },
+  { value: 2, label: "2 — высокая" },
+];
+
 export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [type, setType] = useState<WidgetType>("kpi");
   const [metric, setMetric] = useState("calls_total");
-  const [size, setSize] = useState<WidgetSize>("small");
+  const [width, setWidth] = useState<WidgetWidth>(2);
+  const [height, setHeight] = useState<WidgetHeight>(1);
 
   useEffect(() => {
     if (widget) {
@@ -29,7 +46,8 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
       const allowed = allowedWidgetTypes(widget.metric);
       setType(allowed.includes(widget.type) ? widget.type : allowed[0]);
       setMetric(widget.metric);
-      setSize(widget.size);
+      setWidth(clampWidgetWidth(widget.width));
+      setHeight(clampWidgetHeight(widget.height));
     }
   }, [widget]);
 
@@ -43,17 +61,28 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
     if (opt && !title.trim()) setTitle(opt.label);
     const nextType = defaultWidgetType(m);
     setType(nextType);
-    setSize(suggestedWidgetSize(m, nextType));
+    const dims = suggestedWidgetDimensions(m, nextType);
+    setWidth(dims.width);
+    setHeight(dims.height);
   };
 
   const handleTypeChange = (nextType: WidgetType) => {
     setType(nextType);
-    setSize(suggestedWidgetSize(metric, nextType));
+    const dims = suggestedWidgetDimensions(metric, nextType);
+    setWidth(dims.width);
+    setHeight(dims.height);
   };
 
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ ...widget, title: title.trim() || metric, type, metric, size });
+    onSave({
+      ...widget,
+      title: title.trim() || metric,
+      type,
+      metric,
+      width: clampWidgetWidth(width),
+      height: clampWidgetHeight(height),
+    });
     onClose();
   };
 
@@ -101,15 +130,37 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
               <p className="form-hint">Для этой метрики доступен один вид отображения.</p>
             )}
           </div>
-          <div className="form-group">
-            <label>Размер</label>
-            <select value={size} onChange={(e) => setSize(e.target.value as WidgetSize)}>
-              <option value="small">Малый</option>
-              <option value="medium">Средний</option>
-              <option value="large">Большой</option>
-            </select>
-            <p className="form-hint">Рекомендуется: {widgetSizeHint(metric, type)}</p>
+          <div className="form-row form-row--2">
+            <div className="form-group">
+              <label>Ширина (1–4)</label>
+              <select
+                value={width}
+                onChange={(e) => setWidth(clampWidgetWidth(Number(e.target.value)))}
+              >
+                {WIDTH_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
+              <label>Высота (1–2)</label>
+              <select
+                value={height}
+                onChange={(e) => setHeight(clampWidgetHeight(Number(e.target.value)))}
+              >
+                {HEIGHT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
+          <p className="form-hint">
+            Сейчас: {formatWidgetDimensions(width, height)}. Рекомендуется: {widgetSizeHint(metric, type)}
+          </p>
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>
               Отмена

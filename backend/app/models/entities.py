@@ -289,3 +289,20 @@ class ResearchStudy(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     user: Mapped["User"] = relationship()
+
+
+class CallExportJob(Base):
+    __tablename__ = "call_export_jobs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    format: Mapped[str] = mapped_column(String(10))  # json | csv
+    filters_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    row_count: Mapped[int] = mapped_column(Integer, default=0)
+    storage_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    user: Mapped["User"] = relationship()

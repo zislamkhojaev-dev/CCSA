@@ -58,9 +58,12 @@
   --z-dropdown: 1200;
   --z-modal: 2000;
 
-  --dash-widget-h-small: 7.25rem;
-  --dash-widget-h-medium: 9rem;
-  --dash-widget-h-large: 12rem;
+  /* Widget heights are only x1 or x2 — no in-between sizes. */
+  --dash-widget-h-x1: 8rem;
+  --dash-widget-h-x2: calc(var(--dash-widget-h-x1) * 2);
+  --dash-widget-h-small: var(--dash-widget-h-x1);
+  --dash-widget-h-medium: var(--dash-widget-h-x1);
+  --dash-widget-h-large: var(--dash-widget-h-x2);
   --dash-bar-h: 0.5rem;
 
   /* Dashboard accent (quality / violations) — overridden per theme */
@@ -416,6 +419,20 @@ pre,
 /* ---------- Forms ---------- */
 .form-group {
   margin-bottom: var(--space-4);
+}
+
+.form-row {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.form-row--2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.form-row .form-group {
+  margin-bottom: 0;
 }
 
 .form-group label {
@@ -911,6 +928,10 @@ tbody tr:last-child td {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-modal);
   padding: var(--space-5);
+}
+
+.calls-export-modal {
+  max-width: 40rem;
 }
 
 .modal-title {
@@ -1562,76 +1583,82 @@ table a:hover {
   height: var(--control-h);
 }
 
-/* Widget grid */
+/* Widget grid — 4 relative columns, height in 1–2 row units */
 .dash-grid {
   display: grid;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-auto-rows: var(--dash-widget-h-x1);
   gap: var(--space-3);
-  align-items: start;
+  align-items: stretch;
 }
 
 .dash-sortable-item {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
 }
 
-.dash-sortable-item--small {
-  grid-column: span 3;
+.dash-sortable-item > .dash-widget {
+  flex: 1 1 auto;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
-.dash-sortable-item--medium {
-  grid-column: span 6;
-}
+.dash-sortable-item--w-1 { grid-column: span 1; }
+.dash-sortable-item--w-2 { grid-column: span 2; }
+.dash-sortable-item--w-3 { grid-column: span 3; }
+.dash-sortable-item--w-4 { grid-column: span 4; }
 
-.dash-sortable-item--large {
-  grid-column: span 12;
-}
-
-@media (max-width: 1100px) {
-  .dash-sortable-item--small {
-    grid-column: span 4;
-  }
-}
+.dash-sortable-item--h-1 { grid-row: span 1; }
+.dash-sortable-item--h-2 { grid-row: span 2; }
 
 @media (max-width: 860px) {
-  .dash-sortable-item--small,
-  .dash-sortable-item--medium {
-    grid-column: span 6;
+  .dash-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .dash-sortable-item--w-3,
+  .dash-sortable-item--w-4 {
+    grid-column: span 2;
+  }
+
+  .dash-sortable-item--w-1,
+  .dash-sortable-item--w-2 {
+    grid-column: span 1;
   }
 }
 
 @media (max-width: 560px) {
-  .dash-sortable-item--small,
-  .dash-sortable-item--medium,
-  .dash-sortable-item--large {
-    grid-column: span 12;
+  .dash-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dash-sortable-item--w-1,
+  .dash-sortable-item--w-2,
+  .dash-sortable-item--w-3,
+  .dash-sortable-item--w-4 {
+    grid-column: span 1;
   }
 }
 
-/* Widget card */
+/* Widget card fills its grid cell (width × height in relative units). */
 .card.dash-widget {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
   overflow: hidden;
   padding: var(--space-4);
+  min-height: var(--dash-widget-h-x1);
 }
 
-.dash-widget--small {
-  height: var(--dash-widget-h-small);
-  min-height: var(--dash-widget-h-small);
-  max-height: var(--dash-widget-h-small);
+.dash-widget--h-1 {
+  min-height: var(--dash-widget-h-x1);
 }
 
-.dash-widget--medium {
-  height: var(--dash-widget-h-medium);
-  min-height: var(--dash-widget-h-medium);
-  max-height: var(--dash-widget-h-medium);
-}
-
-.dash-widget--large {
-  height: var(--dash-widget-h-large);
-  min-height: var(--dash-widget-h-large);
-  max-height: var(--dash-widget-h-large);
+.dash-widget--h-2 {
+  min-height: calc(var(--dash-widget-h-x1) * 2 + var(--space-3));
 }
 
 .dash-widget--editing {
@@ -1683,15 +1710,12 @@ table a:hover {
   overscroll-behavior: contain;
 }
 
-.dash-widget--category-bars {
-  height: auto;
-  min-height: var(--dash-widget-h-medium);
-  max-height: var(--dash-widget-h-large);
-}
-
-.dash-widget--large .dash-widget-body {
+/* Category bars stay on the x1/x2 ladder; overflow scrolls inside the body. */
+.dash-widget--category-bars .dash-widget-body,
+.dash-widget--h-2 .dash-widget-body {
   justify-content: flex-start;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
 .dash-widget .score-big {
@@ -1706,8 +1730,8 @@ table a:hover {
   letter-spacing: var(--tracking-tight);
 }
 
-.dash-widget--small .dash-kpi-value,
-.dash-widget--small .score-big {
+.dash-widget--w-1 .dash-kpi-value,
+.dash-widget--w-1 .score-big {
   font-size: var(--text-2xl);
 }
 
@@ -2102,8 +2126,8 @@ table a:hover {
   text-shadow: 0 0 24px color-mix(in srgb, var(--text-strong) 12%, transparent);
 }
 
-[data-theme="dark"] .dash-page .dash-widget--small .dash-kpi-value,
-[data-theme="dark"] .dash-page .dash-widget--small .score-big {
+[data-theme="dark"] .dash-page .dash-widget--w-1 .dash-kpi-value,
+[data-theme="dark"] .dash-page .dash-widget--w-1 .score-big {
   font-size: 1.625rem;
 }
 

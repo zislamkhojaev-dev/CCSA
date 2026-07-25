@@ -32,10 +32,13 @@ import {
   DEFAULT_LAYOUT,
   METRIC_OPTIONS,
   newWidgetId,
-  widgetGridSizeClass,
+  normalizeLayout,
+  normalizeWidget,
+  suggestedWidgetDimensions,
+  widgetGridClasses,
+  widgetCardClasses,
   type DashboardLayout,
   type DashboardWidget,
-  suggestedWidgetSize,
   defaultWidgetType,
 } from "../types/dashboard";
 
@@ -66,7 +69,7 @@ function SortableWidget({
     <div
       ref={setNodeRef}
       style={style}
-      className={`dash-sortable-item ${widgetGridSizeClass(widget.size)}`.trim()}
+      className={`dash-sortable-item ${widgetGridClasses(widget.width, widget.height)}`.trim()}
     >
       <DashboardWidgetCard
         widget={widget}
@@ -96,7 +99,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (layoutData?.widgets?.length && !dirty) {
-      setWidgets(layoutData.widgets);
+      setWidgets(normalizeLayout(layoutData).widgets);
     }
   }, [layoutData, dirty]);
 
@@ -135,12 +138,14 @@ export default function DashboardPage() {
   const addWidget = () => {
     const metric = "calls_total";
     const type = defaultWidgetType(metric);
+    const dims = suggestedWidgetDimensions(metric, type);
     const w: DashboardWidget = {
       id: newWidgetId(),
       type,
       title: METRIC_OPTIONS.find((o) => o.value === metric)?.label ?? "Новый виджет",
       metric,
-      size: suggestedWidgetSize(metric, type),
+      width: dims.width,
+      height: dims.height,
     };
     markDirty([...widgets, w]);
     setEditorWidget(w);
@@ -176,7 +181,7 @@ export default function DashboardPage() {
   };
 
   const saveLayout = () => {
-    saveMutation.mutate({ widgets });
+    saveMutation.mutate(normalizeLayout({ widgets }));
   };
 
   if (isLoading && !widgets.length) return <p className="empty">Загрузка...</p>;
@@ -227,7 +232,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   setEditing(false);
                   setDirty(false);
-                  if (layoutData?.widgets?.length) setWidgets(layoutData.widgets);
+                  if (layoutData?.widgets?.length) setWidgets(normalizeLayout(layoutData).widgets);
                   else qc.invalidateQueries({ queryKey: ["dashboard-layout"] });
                 }}
               >
@@ -252,7 +257,7 @@ export default function DashboardPage() {
             {widgets.map((w) => (
               <SortableWidget
                 key={w.id}
-                widget={w}
+                widget={normalizeWidget(w)}
                 filters={filters}
                 editing={editing}
                 onEdit={() => setEditorWidget(w)}

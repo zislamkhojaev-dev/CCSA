@@ -45,8 +45,11 @@ make lint
 ## Добавление метрики дашборда
 
 1. `backend/app/services/dashboard_metrics.py` — логика метрики
-2. `frontend/src/types/dashboard.ts` — ключ и подпись
+2. `frontend/src/types/dashboard.ts` — ключ, подпись, `suggestedWidgetDimensions`
 3. Дефолтные виджеты в `backend/app/api/dashboard.py` (опционально)
+
+Layout виджета: `{ id, type, title, metric, width: 1–4, height: 1–2 }`. Legacy `size`
+(`small`/`medium`/`large`) мигрирует при загрузке.
 
 ## Добавление критерия в сценарий
 

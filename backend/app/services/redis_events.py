@@ -24,6 +24,11 @@ def publish_research_event(study_id: int, payload: dict[str, Any]) -> None:
     get_redis().publish(channel, json.dumps(payload))
 
 
+def publish_call_export_event(job_id: int, payload: dict[str, Any]) -> None:
+    channel = f"calls:export:{job_id}"
+    get_redis().publish(channel, json.dumps(payload))
+
+
 def subscribe_playground_events(job_id: int):
     r = get_redis()
     pubsub = r.pubsub()
@@ -35,4 +40,11 @@ def subscribe_research_events(study_id: int):
     r = get_redis()
     pubsub = r.pubsub()
     pubsub.subscribe(f"research:study:{study_id}")
+    return pubsub
+
+
+def subscribe_call_export_events(job_id: int):
+    r = get_redis()
+    pubsub = r.pubsub()
+    pubsub.subscribe(f"calls:export:{job_id}")
     return pubsub

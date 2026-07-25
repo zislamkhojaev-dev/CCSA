@@ -8,7 +8,7 @@ import type {
   MetricSeriesPoint,
   WidgetMetricData,
 } from "../../types/dashboard";
-import { usesCategoryBars } from "../../types/dashboard";
+import { usesCategoryBars, widgetCardClasses } from "../../types/dashboard";
 
 import type { DashboardFiltersState } from "../../utils/dashboardFilters";
 import { buildDashboardQueryString, dashboardFiltersKey } from "../../utils/dashboardFilters";
@@ -398,7 +398,7 @@ export default function DashboardWidgetCard({
 
   return (
     <article
-      className={`card dash-widget dash-widget--${widget.size}${editing ? " dash-widget--editing" : ""}${scrollBody ? " dash-widget--scroll-body" : ""}${categoryBarWidget ? " dash-widget--category-bars" : ""}`}
+      className={`card dash-widget ${widgetCardClasses(widget.width, widget.height)}${editing ? " dash-widget--editing" : ""}${scrollBody ? " dash-widget--scroll-body" : ""}${categoryBarWidget ? " dash-widget--category-bars" : ""}`}
     >
       <header className="card-header dash-widget-header">
         {editing && dragHandleProps && (

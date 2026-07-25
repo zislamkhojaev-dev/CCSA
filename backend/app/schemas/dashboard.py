@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ScoreBucket(BaseModel):
@@ -42,7 +42,37 @@ class DashboardWidgetConfig(BaseModel):
     title: str
     metric: str
     compare_metric: str | None = None
-    size: str = "medium"
+    width: int = Field(default=2, ge=1, le=4)
+    height: int = Field(default=1, ge=1, le=2)
+    size: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_size(cls, data: object) -> object:
+        if not isinstance(data, dict):
+            return data
+        payload = dict(data)
+        if "width" not in payload or "height" not in payload:
+            legacy = payload.get("size") or "medium"
+            mapping = {
+                "small": (1, 1),
+                "medium": (2, 1),
+                "large": (4, 2),
+            }
+            width, height = mapping.get(str(legacy), (2, 1))
+            payload.setdefault("width", width)
+            payload.setdefault("height", height)
+        return payload
+
+    @field_validator("width")
+    @classmethod
+    def clamp_width(cls, value: int) -> int:
+        return max(1, min(4, int(value)))
+
+    @field_validator("height")
+    @classmethod
+    def clamp_height(cls, value: int) -> int:
+        return 1 if int(value) < 2 else 2
 
 
 class DashboardLayoutOut(BaseModel):

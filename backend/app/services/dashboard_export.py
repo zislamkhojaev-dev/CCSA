@@ -17,8 +17,6 @@ from app.services.dashboard_filters import DashboardFilters
 from app.services.dashboard_metrics import METRIC_LABELS, fetch_widget_metric
 from app.services.quality_settings import QualityConfig
 
-DIRECTION_LABELS = {"inbound": "Входящие", "outbound": "Исходящие"}
-
 
 def dashboard_export_filename(*, ext: str) -> str:
     stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M")
@@ -30,7 +28,8 @@ def _metric_to_dict(widget: DashboardWidgetConfig, data: WidgetMetricResponse) -
         "widget_id": widget.id,
         "widget_title": widget.title,
         "widget_type": widget.type,
-        "widget_size": widget.size,
+        "widget_width": widget.width,
+        "widget_height": widget.height,
         "metric": data.metric,
         "metric_label": METRIC_LABELS.get(data.metric, data.label),
         "kind": data.kind,
@@ -64,7 +63,10 @@ def build_filter_summary(
     *,
     scenario_name: str | None = None,
 ) -> dict[str, Any]:
-    """Human-readable filter description for export files."""
+    """Human-readable filter description for export files.
+
+    Only period and scenario — the filters exposed in the dashboard UI.
+    """
     period_label = _format_period_label(filters)
     if scenario_name:
         scenario_label = scenario_name
@@ -73,28 +75,15 @@ def build_filter_summary(
     else:
         scenario_label = "Все сценарии"
 
-    direction_label = (
-        DIRECTION_LABELS.get(filters.direction, filters.direction)
-        if filters.direction
-        else "Все направления"
-    )
-    operators_label = (
-        ", ".join(str(i) for i in filters.operator_ids) if filters.operator_ids else "Все операторы"
-    )
-
     since, until = filters.time_bounds()
     return {
         "period": period_label,
         "scenario": scenario_label,
-        "direction": direction_label,
-        "operators": operators_label,
         "effective_since": since.isoformat(),
         "effective_until": until.isoformat() if until else None,
         "labels": [
             {"key": "period", "label": "Период", "value": period_label},
             {"key": "scenario", "label": "Сценарий", "value": scenario_label},
-            {"key": "direction", "label": "Направление", "value": direction_label},
-            {"key": "operators", "label": "Операторы", "value": operators_label},
         ],
     }
 

@@ -32,26 +32,27 @@ router = APIRouter()
 
 DEFAULT_WIDGETS = [
     DashboardWidgetConfig(
-        id="w1", type="count", title="Всего звонков", metric="calls_total", size="small"
+        id="w1", type="count", title="Всего звонков", metric="calls_total", width=1, height=1
     ),
     DashboardWidgetConfig(
-        id="w2", type="count", title="Проанализировано", metric="calls_analyzed", size="small"
+        id="w2", type="count", title="Проанализировано", metric="calls_analyzed", width=1, height=1
     ),
     DashboardWidgetConfig(
-        id="w3", type="kpi", title="Средний балл", metric="score_avg", size="small"
+        id="w3", type="kpi", title="Средний балл", metric="score_avg", width=1, height=1
     ),
     DashboardWidgetConfig(
-        id="w4", type="count", title="Нарушения", metric="violations_count", size="small"
+        id="w4", type="count", title="Нарушения", metric="violations_count", width=1, height=1
     ),
     DashboardWidgetConfig(
-        id="w5", type="count", title="Звонков сегодня", metric="calls_today", size="small"
+        id="w5", type="count", title="Звонков сегодня", metric="calls_today", width=1, height=1
     ),
     DashboardWidgetConfig(
         id="w6",
         type="chart",
         title="Распределение оценок",
         metric="score_distribution",
-        size="large",
+        width=4,
+        height=2,
     ),
 ]
 
