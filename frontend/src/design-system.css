@@ -926,12 +926,14 @@ tbody tr:last-child td {
   overflow: auto;
   border-radius: var(--shape-lg);
   border: 1px solid var(--border);
+  background: var(--elevated);
   box-shadow: var(--shadow-modal);
   padding: var(--space-5);
 }
 
 .calls-export-modal {
   max-width: 40rem;
+  background: var(--elevated);
 }
 
 .modal-title {
