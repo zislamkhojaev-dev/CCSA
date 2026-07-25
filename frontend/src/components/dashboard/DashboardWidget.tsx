@@ -82,7 +82,7 @@ function RankedBars({
   return (
     <div className="dash-bars">
       {series.map((s, i) => {
-        const color = colorByScore && isPct ? scoreColorVar(s.value, good, mid) : "var(--primary)";
+        const color = colorByScore && isPct ? scoreColorVar(s.value, good, mid) : "var(--dash-accent)";
         return (
           <div className="dash-bar-row" key={`${s.label}-${i}`}>
             <span className="dash-bar-label" title={s.label}>
@@ -168,7 +168,7 @@ function Heatmap({ matrix }: { matrix: MetricMatrix }) {
       return `color-mix(in srgb, ${base} 55%, transparent)`;
     }
     const intensity = Math.round((c.value / maxCount) * 100);
-    return `color-mix(in srgb, var(--primary) ${Math.max(4, intensity)}%, transparent)`;
+    return `color-mix(in srgb, var(--dash-accent) ${Math.max(4, intensity)}%, transparent)`;
   };
   if (!matrix.rows.length || !matrix.cols.length) {
     return <p className="dash-widget-muted">Нет данных</p>;
@@ -344,7 +344,7 @@ export default function DashboardWidgetCard({
 
   return (
     <article className={`card dash-widget dash-widget--${widget.size}${editing ? " dash-widget--editing" : ""}`}>
-      <header className="dash-widget-header">
+      <header className="card-header dash-widget-header">
         {editing && dragHandleProps && (
           <button
             type="button"

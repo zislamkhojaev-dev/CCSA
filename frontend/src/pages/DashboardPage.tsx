@@ -24,6 +24,7 @@ import {
   saveDashboardFilters,
   type DashboardFiltersState,
 } from "../utils/dashboardFilters";
+import DashboardExportMenu from "../components/dashboard/DashboardExportMenu";
 import DashboardFiltersPanel from "../components/dashboard/DashboardFiltersPanel";
 import DashboardWidgetCard from "../components/dashboard/DashboardWidget";
 import WidgetEditorModal from "../components/dashboard/WidgetEditorModal";
@@ -178,7 +179,7 @@ export default function DashboardPage() {
   if (isLoading && !widgets.length) return <p className="empty">Загрузка...</p>;
 
   return (
-    <>
+    <div className="dash-page">
       <div className="page-header dash-page-header">
         <h1 className="page-title">
           <LayoutGrid size={20} aria-hidden />
@@ -186,15 +187,18 @@ export default function DashboardPage() {
         </h1>
         <div className="dash-toolbar-actions">
           {!editing ? (
-            <button
-              type="button"
-              className="btn btn-secondary btn-icon"
-              onClick={() => setEditing(true)}
-              aria-label="Редактировать дашборд"
-              title="Редактировать дашборд"
-            >
-              <Pencil size={16} />
-            </button>
+            <>
+              <DashboardExportMenu onExport={handleExport} exporting={exporting} />
+              <button
+                type="button"
+                className="btn btn-secondary btn-icon"
+                onClick={() => setEditing(true)}
+                aria-label="Редактировать дашборд"
+                title="Редактировать дашборд"
+              >
+                <Pencil size={16} />
+              </button>
+            </>
           ) : (
             <>
               <button type="button" className="btn btn-secondary" onClick={addWidget}>
@@ -231,12 +235,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <DashboardFiltersPanel
-        filters={filters}
-        onChange={handleFiltersChange}
-        onExport={handleExport}
-        exporting={exporting}
-      />
+      <DashboardFiltersPanel filters={filters} onChange={handleFiltersChange} />
 
       {editing && (
         <p className="dash-hint">
@@ -290,6 +289,6 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
