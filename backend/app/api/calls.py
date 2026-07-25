@@ -214,13 +214,16 @@ async def reanalyze(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
+    from worker.task_lock import is_locked
     from worker.tasks.pipeline import reanalyze_call
 
     result = await db.execute(select(Call).where(Call.id == call_id))
     call = result.scalar_one_or_none()
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
-    if call.status in ("transcribing", "analyzing"):
+    # Busy is decided by the worker lock, not by call.status: a status left over
+    # from a crashed worker must not block retries forever.
+    if is_locked("analyze", call_id) or is_locked("transcribe", call_id):
         raise HTTPException(status_code=409, detail="Звонок уже обрабатывается")
     call.status = "analyzing"
     call.error_message = None
@@ -231,6 +234,7 @@ async def reanalyze(
 
 @router.post("/{call_id}/retranscribe", response_model=MessageOut)
 async def retranscribe(call_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
+    from worker.task_lock import is_locked
     from worker.tasks.pipeline import retranscribe_call
 
     result = await db.execute(select(Call).where(Call.id == call_id))
@@ -239,7 +243,7 @@ async def retranscribe(call_id: int, db: AsyncSession = Depends(get_db), _: User
         raise HTTPException(status_code=404, detail="Call not found")
     if not call.audio_path:
         raise HTTPException(status_code=400, detail="Call has no audio file")
-    if call.status in ("transcribing", "analyzing"):
+    if is_locked("analyze", call_id) or is_locked("transcribe", call_id):
         raise HTTPException(status_code=409, detail="Звонок уже обрабатывается — дождитесь завершения")
     call.status = "transcribing"
     call.error_message = None

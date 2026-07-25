@@ -5,6 +5,7 @@ import {
   allowedWidgetTypes,
   defaultWidgetType,
   suggestedWidgetSize,
+  widgetSizeHint,
   type DashboardWidget,
   type WidgetSize,
   type WidgetType,
@@ -40,8 +41,14 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
     setMetric(m);
     const opt = METRIC_OPTIONS.find((o) => o.value === m);
     if (opt && !title.trim()) setTitle(opt.label);
-    setType(defaultWidgetType(m));
-    setSize(suggestedWidgetSize(m));
+    const nextType = defaultWidgetType(m);
+    setType(nextType);
+    setSize(suggestedWidgetSize(m, nextType));
+  };
+
+  const handleTypeChange = (nextType: WidgetType) => {
+    setType(nextType);
+    setSize(suggestedWidgetSize(metric, nextType));
   };
 
   const submit = (e: React.FormEvent) => {
@@ -81,7 +88,7 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
             <label>Тип отображения</label>
             <select
               value={type}
-              onChange={(e) => setType(e.target.value as WidgetType)}
+              onChange={(e) => handleTypeChange(e.target.value as WidgetType)}
               disabled={typeOptions.length <= 1}
             >
               {typeOptions.map((t) => (
@@ -101,6 +108,7 @@ export default function WidgetEditorModal({ widget, onSave, onClose }: Props) {
               <option value="medium">Средний</option>
               <option value="large">Большой</option>
             </select>
+            <p className="form-hint">Рекомендуется: {widgetSizeHint(metric, type)}</p>
           </div>
           <div className="modal-actions">
             <button type="button" className="btn btn-secondary" onClick={onClose}>

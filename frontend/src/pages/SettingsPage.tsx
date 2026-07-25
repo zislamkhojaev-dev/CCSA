@@ -392,6 +392,16 @@ function QualityTab() {
     onError: (e: Error) => setBackfillHint(`Ошибка: ${e.message}`),
   });
 
+  const [recoverHint, setRecoverHint] = useState<string | null>(null);
+
+  const recoverStuck = useMutation({
+    mutationFn: () => api.post<{ message: string }>("/settings/maintenance/recover-stuck-calls"),
+    onSuccess: (r) => {
+      setRecoverHint(`${r.message} Звонки вернутся в очередь и будут обработаны в течение 5 минут.`);
+    },
+    onError: (e: Error) => setRecoverHint(`Ошибка: ${e.message}`),
+  });
+
   const setNum = (key: "threshold_good" | "threshold_mid" | "target", raw: string) => {
     const v = Math.max(0, Math.min(100, Number(raw) || 0));
     setForm((f) => ({ ...f, [key]: v }));
@@ -466,6 +476,26 @@ function QualityTab() {
       {backfillHint && (
         <p className={`form-hint mt-2 ${backfillHint.startsWith("Ошибка:") ? "text-error" : ""}`} role="status">
           {backfillHint}
+        </p>
+      )}
+
+      <h4 className="form-section-title">Зависшие обработки</h4>
+      <p className="text-muted">
+        Если звонок надолго остался в статусе «Транскрибация» или «Анализ» (например, после
+        перезапуска worker), вернуть его в очередь. Звонки, которые обрабатываются прямо сейчас,
+        не затрагиваются.
+      </p>
+      <button
+        type="button"
+        className="btn btn-secondary"
+        onClick={() => recoverStuck.mutate()}
+        disabled={recoverStuck.isPending}
+      >
+        {recoverStuck.isPending ? "Запуск…" : "Восстановить зависшие звонки"}
+      </button>
+      {recoverHint && (
+        <p className={`form-hint mt-2 ${recoverHint.startsWith("Ошибка:") ? "text-error" : ""}`} role="status">
+          {recoverHint}
         </p>
       )}
     </div>

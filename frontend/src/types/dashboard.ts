@@ -137,12 +137,83 @@ export function defaultWidgetType(metric: string): WidgetType {
   return allowedWidgetTypes(metric)[0];
 }
 
-/** Suggested widget size for a metric's default visualization. */
-export function suggestedWidgetSize(metric: string): WidgetSize {
-  const t = defaultWidgetType(metric);
-  if (t === "heatmap") return "large";
-  if (t === "bars" || t === "trend" || t === "chart" || t === "comparison") return "medium";
+/** Metrics whose bar labels are long names (topics, criteria, operators). */
+export const CATEGORY_BAR_METRICS = new Set([
+  "topics_distribution",
+  "score_by_topic",
+  "criteria_pass_rate",
+  "operators_by_calls",
+  "operators_by_score",
+  "operators_top_best",
+  "operators_top_worst",
+]);
+
+export function usesCategoryBars(metric: string, type: WidgetType): boolean {
+  return type === "bars" && CATEGORY_BAR_METRICS.has(metric);
+}
+
+/**
+ * Recommended grid footprint per metric + visualization.
+ * KPI/scalars → small; trends/comparisons/distributions → medium; lists/heatmaps → large.
+ */
+export function suggestedWidgetSize(metric: string, type?: WidgetType): WidgetSize {
+  const visualization = type ?? defaultWidgetType(metric);
+
+  if (visualization === "heatmap") return "large";
+
+  if (visualization === "kpi" || visualization === "count" || visualization === "percent") {
+    return "small";
+  }
+
+  if (visualization === "stat") {
+    return metric === "duration_total" ? "medium" : "small";
+  }
+
+  if (visualization === "comparison") return "medium";
+
+  if (metric === "calls_by_day") {
+    return visualization === "trend" ? "large" : "medium";
+  }
+
+  if (metric === "score_by_day") return "medium";
+
+  if (metric === "score_distribution" || metric === "duration_distribution") {
+    return "medium";
+  }
+
+  if (
+    metric === "topics_distribution" ||
+    metric === "score_by_topic" ||
+    metric === "criteria_pass_rate"
+  ) {
+    return "large";
+  }
+
+  if (
+    metric === "operators_by_calls" ||
+    metric === "operators_by_score" ||
+    metric === "operators_top_best" ||
+    metric === "operators_top_worst"
+  ) {
+    return "medium";
+  }
+
+  if (visualization === "trend" || visualization === "chart" || visualization === "bars") {
+    return "medium";
+  }
+
   return "small";
+}
+
+export const WIDGET_SIZE_LABELS: Record<WidgetSize, string> = {
+  small: "Малый — KPI / одно число",
+  medium: "Средний — график или рейтинг",
+  large: "Большой — списки, темы, heatmap",
+};
+
+/** Human-readable spec for widget editor hints. */
+export function widgetSizeHint(metric: string, type: WidgetType): string {
+  return WIDGET_SIZE_LABELS[suggestedWidgetSize(metric, type)];
 }
 
 export const DEFAULT_LAYOUT: DashboardLayout = {
@@ -151,13 +222,20 @@ export const DEFAULT_LAYOUT: DashboardLayout = {
     { id: "w2", type: "count", title: "Проанализировано", metric: "calls_analyzed", size: "small" },
     { id: "w3", type: "kpi", title: "Средний балл", metric: "score_avg", size: "small" },
     { id: "w4", type: "count", title: "Нарушения", metric: "violations_count", size: "small" },
-    { id: "w5", type: "count", title: "Звонков сегодня", metric: "calls_today", size: "small" },
+    { id: "w5", type: "percent", title: "Покрытие", metric: "coverage", size: "small" },
     {
       id: "w6",
+      type: "trend",
+      title: "Звонки по дням",
+      metric: "calls_by_day",
+      size: "large",
+    },
+    {
+      id: "w7",
       type: "chart",
       title: "Распределение оценок",
       metric: "score_distribution",
-      size: "large",
+      size: "medium",
     },
   ],
 };

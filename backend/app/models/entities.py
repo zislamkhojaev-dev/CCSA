@@ -27,6 +27,7 @@ class CallStatus(str, enum.Enum):
     pending = "pending"
     downloading = "downloading"
     transcribing = "transcribing"
+    transcribed = "transcribed"
     analyzing = "analyzing"
     analyzed = "analyzed"
     error = "error"
@@ -104,6 +105,9 @@ class Call(Base):
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     source: Mapped[str] = mapped_column(String(50), default="webitel")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=True
+    )
 
     operator: Mapped["Operator | None"] = relationship(back_populates="calls")
     scenario: Mapped["Scenario | None"] = relationship()

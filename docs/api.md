@@ -25,8 +25,11 @@
 | PATCH | `/calls/{id}/tags` | Теги |
 | POST | `/calls/{id}/notes` | Заметка |
 | POST | `/calls/{id}/retranscribe` | Повтор ASR + LLM |
-| POST | `/calls/{id}/reanalyze` | Повтор LLM |
+| POST | `/calls/{id}/reanalyze` | Повтор LLM (заменяет прежний вердикт) |
 | GET | `/calls/{id}/audio` | URL аудио |
+
+`409` на `retranscribe` / `reanalyze` означает, что звонок **прямо сейчас** обрабатывается
+(проверяется Redis-лок, а не статус в БД).
 
 ### Dashboard
 
@@ -122,9 +125,15 @@ POST /research
 | Метод | Путь | Описание |
 |-------|------|----------|
 | GET/PUT | `/settings/models` | ASR/LLM/производительность |
+| GET/PUT | `/settings/quality` | Пороги качества и таксономия тем |
+| POST | `/settings/quality/backfill-topics` | Классифицировать звонки без темы |
+| POST | `/settings/maintenance/recover-stuck-calls` | Вернуть зависшие обработки в очередь |
 | GET/PUT | `/settings/webitel` | Webitel |
 | GET/PUT | `/settings/automation` | Автоматизация |
 | GET/POST/PATCH | `/settings/users` | Пользователи |
+
+`recover-stuck-calls` принимает `?stale_minutes=N` (по умолчанию `0` — все зависшие). Звонки,
+у которых лок ещё удерживается воркером, не затрагиваются.
 
 ### Operators
 

@@ -1622,6 +1622,18 @@ table a:hover {
   overflow: hidden;
 }
 
+.dash-widget--scroll-body .dash-widget-body {
+  justify-content: flex-start;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.dash-widget--category-bars {
+  height: auto;
+  min-height: var(--dash-widget-h-medium);
+  max-height: var(--dash-widget-h-large);
+}
+
 .dash-widget--large .dash-widget-body {
   justify-content: flex-start;
   overflow-y: auto;
@@ -1698,6 +1710,45 @@ table a:hover {
   font-weight: var(--font-normal);
   color: var(--muted);
   font-size: var(--text-xs);
+}
+
+/* Topic / category bars — full labels, bar below */
+.dash-bars--topics {
+  gap: var(--space-3);
+}
+
+.dash-bar-row--topics {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.dash-bar-row--topics .dash-bar-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.dash-bar-row--topics .dash-bar-label {
+  flex: 1;
+  min-width: 0;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: var(--leading-snug);
+  color: var(--text);
+  font-weight: var(--font-medium);
+}
+
+.dash-bar-row--topics .dash-bar-value {
+  flex-shrink: 0;
+}
+
+.dash-bar-row--topics .dash-bar-track {
+  width: 100%;
 }
 
 /* Trend chart */

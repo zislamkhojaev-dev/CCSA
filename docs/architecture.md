@@ -81,10 +81,16 @@ CCSA/
 | `pipeline.transcribe_call` | ASR одного звонка |
 | `pipeline.analyze_call` | LLM-анализ |
 | `pipeline.process_pending_batch` | Очередь pending/transcribed (каждые 5 мин) |
+| `pipeline.recover_stuck_calls` | Возврат брошенных обработок в очередь (каждые 10 мин) |
+| `pipeline.backfill_topics` | Классификация тем у звонков без темы (по кнопке) |
 | `playground.process_playground_file` | ASR + LLM для файла плейграунда |
 | `research.run_research_study` | LLM метаанализ по выборке звонков |
 
 Ограничение параллельных запросов к STT: `worker/asr_limit.py` (Redis, токены с TTL).
+
+Блокировки задач на звонок: `worker/task_lock.py` (Redis, ключи с TTL). Статус звонка —
+состояние для пользователя, не примитив синхронизации: упавший worker освобождает лок по TTL,
+а `recover_stuck_calls` возвращает звонок в очередь. Подробнее: [pipeline.md](pipeline.md#блокировки-и-восстановление).
 
 ## STT (`stt/`)
 

@@ -143,6 +143,16 @@ async def backfill_topics_endpoint(_: User = Depends(get_admin_user)):
     return MessageOut(message="Классификация тем запущена в фоне")
 
 
+@router.post("/maintenance/recover-stuck-calls", response_model=MessageOut)
+async def recover_stuck_calls_endpoint(
+    stale_minutes: int = 0, _: User = Depends(get_admin_user)
+):
+    from worker.tasks.pipeline import recover_stuck_calls
+
+    recover_stuck_calls.delay(max(0, stale_minutes))
+    return MessageOut(message="Восстановление зависших звонков запущено")
+
+
 @router.get("/webitel", response_model=WebitelSettings)
 async def get_webitel_settings(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     days_raw = await get_setting(db, "webitel_sync_days", "[0,1,2,3,4]")

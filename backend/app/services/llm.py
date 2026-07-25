@@ -6,7 +6,7 @@ from typing import Any, Callable
 
 import httpx
 from openai import OpenAI
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import get_settings
 from app.models import Criterion, Scenario
@@ -15,7 +15,18 @@ from app.services.quality_settings import UNCLASSIFIED_TOPIC
 
 logger = logging.getLogger(__name__)
 
+
+class LLMUnavailableError(RuntimeError):
+    """The LLM produced no usable analysis (no key, provider down, invalid JSON).
+
+    Raised only in strict mode so the pipeline can mark the call as failed instead
+    of storing a placeholder verdict that looks like a real score.
+    """
+
+
 MAX_LLM_RETRIES = 3
+# Must match AnalysisResult.call_outcome column width.
+CALL_OUTCOME_MAX_LEN = 100
 COHORT_SINGLE_SHOT_MAX_CHARS = 80_000
 COHORT_MAP_BATCH_SIZE = 15
 
@@ -46,9 +57,18 @@ class AnalysisOutput(BaseModel):
     is_violation: bool = False
     summary: str = ""
     client_pains: str = ""
-    call_outcome: str = ""
+    # Models sometimes answer with a whole sentence instead of a short label;
+    # clamp to the DB column width so persisting the analysis cannot fail.
+    call_outcome: str = Field(default="", max_length=CALL_OUTCOME_MAX_LEN)
     topic: str = ""
     criteria_results: dict[str, CriterionResult]
+
+    @field_validator("call_outcome", mode="before")
+    @classmethod
+    def _clamp_call_outcome(cls, v: Any) -> str:
+        if v is None:
+            return ""
+        return str(v)[:CALL_OUTCOME_MAX_LEN]
 
 
 def _allowed_topics(topics: list[str] | None) -> list[str]:
@@ -216,6 +236,7 @@ async def analyze_transcript(
     ollama_base_url: str | None = None,
     custom_system_prompt: str | None = None,
     topics: list[str] | None = None,
+    strict: bool = False,
 ) -> AnalysisOutput:
     settings = get_settings()
     prov = (provider or "openai").lower()
@@ -250,17 +271,25 @@ async def analyze_transcript(
             else:
                 key = api_key or settings.openai_api_key
                 if not key:
+                    if strict:
+                        raise LLMUnavailableError(
+                            "Не задан ключ OpenAI — укажите его в «Настройки → Модели и AI»"
+                        )
                     return _mock_analysis(criteria, topics=topics)
                 data = _call_openai(prompt, model_name, key, criteria, topics)
             output = AnalysisOutput.model_validate(data)
             output.topic = normalize_topic(output.topic, topics)
             return output
+        except LLMUnavailableError:
+            raise
         except (json.JSONDecodeError, ValidationError, Exception) as e:
             last_error = e
             logger.warning("LLM attempt %s failed: %s", attempt + 1, e)
             prompt = prompt + f"\n\n(Предыдущий ответ невалиден: {e}. Верни корректный JSON.)"
 
     logger.error("LLM failed after retries: %s", last_error)
+    if strict:
+        raise LLMUnavailableError(f"LLM не вернул корректный ответ ({prov}): {last_error}")
     return _mock_analysis(criteria, error=str(last_error), topics=topics)
 
 

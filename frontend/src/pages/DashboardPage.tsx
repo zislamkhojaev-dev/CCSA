@@ -35,7 +35,8 @@ import {
   widgetGridSizeClass,
   type DashboardLayout,
   type DashboardWidget,
-  type WidgetType,
+  suggestedWidgetSize,
+  defaultWidgetType,
 } from "../types/dashboard";
 
 function SortableWidget({
@@ -132,12 +133,14 @@ export default function DashboardPage() {
   };
 
   const addWidget = () => {
+    const metric = "calls_total";
+    const type = defaultWidgetType(metric);
     const w: DashboardWidget = {
       id: newWidgetId(),
-      type: "kpi" as WidgetType,
-      title: "Новый виджет",
-      metric: "calls_total",
-      size: "small",
+      type,
+      title: METRIC_OPTIONS.find((o) => o.value === metric)?.label ?? "Новый виджет",
+      metric,
+      size: suggestedWidgetSize(metric, type),
     };
     markDirty([...widgets, w]);
     setEditorWidget(w);

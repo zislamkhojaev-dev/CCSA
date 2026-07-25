@@ -21,6 +21,9 @@ DEFAULT_TARGET = 85
 # Label used for calls with no assigned topic.
 UNCLASSIFIED_TOPIC = "Не классифицировано"
 
+# Must match AnalysisResult.topic column width.
+TOPIC_MAX_LEN = 120
+
 DEFAULT_TAXONOMY: list[str] = [
     "Оформление заказа",
     "Консультация",
@@ -84,7 +87,7 @@ def normalize_config(
     clean_topics: list[str] = []
     seen: set[str] = set()
     for t in topics:
-        name = str(t).strip()
+        name = str(t).strip()[:TOPIC_MAX_LEN]
         if name and name.lower() not in seen:
             seen.add(name.lower())
             clean_topics.append(name)

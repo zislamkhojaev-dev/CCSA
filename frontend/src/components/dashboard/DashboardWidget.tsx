@@ -8,6 +8,7 @@ import type {
   MetricSeriesPoint,
   WidgetMetricData,
 } from "../../types/dashboard";
+import { usesCategoryBars } from "../../types/dashboard";
 
 import type { DashboardFiltersState } from "../../utils/dashboardFilters";
 import { buildDashboardQueryString, dashboardFiltersKey } from "../../utils/dashboardFilters";
@@ -62,6 +63,43 @@ function BarChart({ series, unit }: { series: { label: string; value: number }[]
           </span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function CategoryBars({
+  series,
+  unit,
+  colorByScore,
+}: {
+  series: MetricSeriesPoint[];
+  unit?: string;
+  colorByScore?: boolean;
+}) {
+  const { good, mid } = useQualityThresholds();
+  const isPct = unit === "%";
+  const max = isPct ? 100 : Math.max(...series.map((s) => s.value), 1);
+  if (!series.length) return <p className="dash-widget-muted">Нет данных</p>;
+  return (
+    <div className="dash-bars dash-bars--topics">
+      {series.map((s, i) => {
+        const color = colorByScore && isPct ? scoreColorVar(s.value, good, mid) : "var(--dash-accent)";
+        return (
+          <div className="dash-bar-row dash-bar-row--topics" key={`${s.label}-${i}`}>
+            <div className="dash-bar-head">
+              <span className="dash-bar-label">{s.label}</span>
+              <span className="dash-bar-value">
+                {s.value}
+                {isPct ? "%" : ""}
+                {s.value_secondary != null && <span className="dash-bar-sub"> · {s.value_secondary}</span>}
+              </span>
+            </div>
+            <div className="dash-bar-track">
+              <div className="dash-bar-fill" style={{ width: `${(s.value / max) * 100}%`, background: color }} />
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -275,11 +313,24 @@ function ComparisonView({ data }: { data: WidgetMetricData }) {
 
 function WidgetBody({ widget, data }: { widget: WidgetConfig; data: WidgetMetricData }) {
   const badge = widget.metric.includes("score") && data.value != null ? scoreBadge(data.value) : null;
+  const categoryBars = usesCategoryBars(widget.metric, widget.type);
 
   switch (widget.type) {
     case "chart":
+      if (categoryBars) {
+        return <CategoryBars series={data.series} unit={data.unit ?? undefined} />;
+      }
       return <BarChart series={data.series} unit={data.unit ?? undefined} />;
     case "bars":
+      if (categoryBars) {
+        return (
+          <CategoryBars
+            series={data.series}
+            unit={data.unit ?? undefined}
+            colorByScore={widget.metric === "score_by_topic" || data.unit === "%"}
+          />
+        );
+      }
       return (
         <RankedBars
           series={data.series}
@@ -342,8 +393,13 @@ export default function DashboardWidgetCard({
       api.get<WidgetMetricData>(`/dashboard/metrics?metric=${encodeURIComponent(widget.metric)}&${qs}`),
   });
 
+  const scrollBody = widget.type === "bars" || widget.type === "chart" || widget.type === "trend";
+  const categoryBarWidget = usesCategoryBars(widget.metric, widget.type);
+
   return (
-    <article className={`card dash-widget dash-widget--${widget.size}${editing ? " dash-widget--editing" : ""}`}>
+    <article
+      className={`card dash-widget dash-widget--${widget.size}${editing ? " dash-widget--editing" : ""}${scrollBody ? " dash-widget--scroll-body" : ""}${categoryBarWidget ? " dash-widget--category-bars" : ""}`}
+    >
       <header className="card-header dash-widget-header">
         {editing && dragHandleProps && (
           <button

@@ -32,7 +32,7 @@ def resolve_scenario(db, call, scenario_id: int | None = None) -> Scenario | Non
     return db.execute(select(Scenario).where(Scenario.is_active.is_(True)).limit(1)).scalar_one_or_none()
 
 
-def run_llm_analysis(db, call, scenario_id: int | None = None):
+def run_llm_analysis(db, call, scenario_id: int | None = None, *, strict: bool = False):
     import asyncio
 
     trans = db.execute(
@@ -65,6 +65,7 @@ def run_llm_analysis(db, call, scenario_id: int | None = None):
             trans.full_text,
             model=llm_model,
             topics=topics,
+            strict=strict,
             **kwargs,
         )
     )

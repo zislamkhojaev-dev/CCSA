@@ -54,6 +54,72 @@ curl -s http://localhost:8001/health | python3 -m json.tool
 - Логи worker при `analyze_call`
 - **Повторный анализ (LLM)** на карточке звонка
 
+При недоступном LLM звонок получает статус `error` с причиной в `error_message` (а не
+правдоподобную оценку-заглушку). Проверить ключ и модель:
+
+```bash
+docker compose exec celery-worker python -c "
+from app.config import get_settings
+s = get_settings()
+print('key set:', bool(s.openai_api_key), '| model:', s.openai_model)"
+```
+
+---
+
+## Звонок застрял в «Анализ» или «Транскрибация»
+
+**Симптомы:** статус `analyzing` / `transcribing` не меняется, в логах worker
+`Skip analyze_call N — another worker is running it`, кнопка повтора отдаёт `409`.
+
+**Причина:** worker был перезапущен или убит во время обработки.
+
+**Действия:**
+
+1. **Настройки → Качество → Восстановить зависшие звонки** — звонки вернутся в очередь.
+   Активные обработки не прерываются.
+2. То же через API:
+   ```bash
+   curl -s -b cookies.txt -X POST \
+     "http://localhost:8080/api/v1/settings/maintenance/recover-stuck-calls?stale_minutes=0"
+   ```
+3. Автоматически это делает `recover_stuck_calls` каждые 10 минут для обработок старше 30 минут.
+4. Посмотреть, что именно застряло:
+   ```bash
+   docker compose exec postgres psql -U ccsa -d ccsa -c \
+     "SELECT id, status, error_message, updated_at FROM calls WHERE status NOT IN ('analyzed','error');"
+   ```
+5. Проверить, держит ли кто-то лок:
+   ```bash
+   docker compose exec redis redis-cli --scan --pattern 'ccsa:lock:*'
+   ```
+
+---
+
+## Новые звонки не обрабатываются автоматически
+
+`process_pending_batch` работает только **внутри окна автоматизации** (дни и время из
+**Настройки → Автоматизация**, по умолчанию Пн–Пт 09:00–18:00). Вне окна задача выходит,
+записывая причину в лог:
+
+```bash
+docker compose logs celery-worker | grep "outside automation window"
+```
+
+Ручные «Повторный анализ» и «Повторное распознавание» доступны в любое время.
+
+---
+
+## Задача Celery не выполняется после обновления кода
+
+Новые задачи регистрируются только при старте worker, а расписание — при старте beat:
+
+```bash
+docker compose restart celery-worker celery-beat
+docker compose logs celery-worker --tail 30 | grep -A 15 "\[tasks\]"
+```
+
+После миграций: `make migrate`.
+
 ---
 
 ## Ошибка 500 при сохранении сценария

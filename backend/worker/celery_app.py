@@ -42,4 +42,8 @@ celery_app.conf.beat_schedule = {
         "task": "worker.tasks.pipeline.process_pending_batch",
         "schedule": crontab(minute="*/5"),
     },
+    "recover-stuck-calls": {
+        "task": "worker.tasks.pipeline.recover_stuck_calls",
+        "schedule": crontab(minute="*/10"),
+    },
 }
