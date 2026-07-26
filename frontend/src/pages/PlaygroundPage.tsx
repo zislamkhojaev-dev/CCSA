@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { Plus } from "lucide-react";
 import { api } from "../api/client";
 import { usePlayground } from "../context/PlaygroundContext";
 import AudioWaveform from "../components/AudioWaveform";
@@ -60,6 +61,7 @@ export default function PlaygroundPage() {
   const [progress, setProgress] = useState(0);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionHint, setActionHint] = useState<string | null>(null);
+  const [setupOpen, setSetupOpen] = useState(() => !!jobId);
 
   const { data: scenarios } = useQuery({
     queryKey: ["scenarios"],
@@ -99,6 +101,10 @@ export default function PlaygroundPage() {
     setProgress(Math.round((done / job.files.length) * 100));
   }, [job?.files]);
 
+  useEffect(() => {
+    if (jobId) setSetupOpen(true);
+  }, [jobId]);
+
   const createJob = useMutation({
     mutationFn: () =>
       api.post<Job>("/playground/jobs", {
@@ -108,10 +114,19 @@ export default function PlaygroundPage() {
       }),
     onSuccess: (j) => {
       setJobId(j.id);
+      setSetupOpen(true);
       setActionError(null);
     },
     onError: (e: Error) => setActionError(e.message),
   });
+
+  const resetToStart = () => {
+    clearSession();
+    setSelected(null);
+    setActionError(null);
+    setActionHint(null);
+    setSetupOpen(false);
+  };
 
   const runAnalysis = useMutation({
     mutationFn: () => api.post<{ message: string }>(`/playground/jobs/${jobId}/run`),
@@ -176,121 +191,158 @@ export default function PlaygroundPage() {
 
   return (
     <>
-      <h1 className="page-title">Плейграунд</h1>
-      <div className="playground-layout">
-        <div className="card playground-setup">
-          <h3>Загрузка и настройка</h3>
-          <div className="playground-setup-row">
-            <div className="form-group">
-              <label>Сценарий оценки</label>
-              <select value={scenarioId} onChange={(e) => setScenarioId(e.target.value ? Number(e.target.value) : "")}>
-                <option value="">— выберите —</option>
-                {scenarios?.map((s) => (
-                  <option key={s.id} value={s.id}>{s.name}</option>
-                ))}
-              </select>
-            </div>
-            <label className="checkbox-row playground-setup-checkbox">
-              <input type="checkbox" checked={useScenarioPrompt} onChange={(e) => setUseScenarioPrompt(e.target.checked)} />
-              Использовать промпт из сценария
-            </label>
-          </div>
-          {!useScenarioPrompt && (
-            <div className="form-group">
-              <label>Тестовый промпт</label>
-              <textarea value={customPrompt} onChange={(e) => setCustomPrompt(e.target.value)} rows={4} />
-            </div>
-          )}
-          {!jobId ? (
-            <button type="button" className="btn btn-primary" onClick={() => createJob.mutate()} disabled={createJob.isPending}>
-              Создать сессию
+      <div className="page-header">
+        <h1 className="page-title">Плейграунд</h1>
+        <div className="page-header__actions">
+          {!jobId && !setupOpen && (
+            <button type="button" className="btn btn-primary" onClick={() => setSetupOpen(true)}>
+              <Plus size={16} /> Создать сессию
             </button>
-          ) : (
-            <>
-              <div
-                className="dropzone"
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
-              >
-                Перетащите .mp3 / .wav
-                <br />
-                <input type="file" multiple accept=".mp3,.wav" onChange={(e) => onDrop(e.target.files)} />
-              </div>
-              <div className="playground-setup-actions">
-                <button
-                  type="button"
-                  className="btn btn-primary"
-                  onClick={() => runAnalysis.mutate()}
-                  disabled={!canRun}
-                >
-                  {runAnalysis.isPending || isProcessing(job) ? "Обработка…" : "Запустить анализ"}
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    clearSession();
-                    setSelected(null);
-                    setActionError(null);
-                    setActionHint(null);
-                  }}
-                >
-                  Новая сессия
-                </button>
-              </div>
-              {!canRun && job && job.files.length > 0 && !isProcessing(job) && (
-                <p className="text-hint">Все файлы уже обработаны. Загрузите новый файл или дождитесь завершения текущего анализа.</p>
-              )}
-              {isProcessing(job) && (
-                <p className="text-hint">Идёт распознавание и анализ — первая загрузка модели ASR может занять 3–5 минут.</p>
-              )}
-              {job && job.files.length > 0 && (
-                <div className="progress">
-                  <div className="progress__track">
-                    <div className="progress__fill" style={{ width: `${progress}%` }} />
-                  </div>
-                  <p className="progress__label">{progress}% завершено</p>
-                </div>
-              )}
-            </>
           )}
-          {actionError && <p className="text-error">{actionError}</p>}
-          {actionHint && <p className="text-success">{actionHint}</p>}
+          {!jobId && setupOpen && (
+            <button type="button" className="btn btn-secondary" onClick={() => setSetupOpen(false)}>
+              Отмена
+            </button>
+          )}
+          {jobId && (
+            <button type="button" className="btn btn-secondary" onClick={resetToStart}>
+              Новая сессия
+            </button>
+          )}
         </div>
+      </div>
 
-        <div className="card playground-results">
-          <div className="card-header">
-            <h3>Результаты</h3>
-            {job && readyFilesCount > 0 && (
+      <div className="playground-layout">
+        {!setupOpen && !jobId && (
+          <div className="card">
+            <p className="empty">Создайте сессию, чтобы выбрать сценарий и загрузить файлы для анализа</p>
+          </div>
+        )}
+
+        {setupOpen && (
+          <div className="card playground-setup">
+            <h3>{jobId ? "Загрузка и настройка" : "Новая сессия"}</h3>
+            <div className="playground-setup-row">
+              <div className="form-group">
+                <label>Сценарий оценки</label>
+                <select
+                  value={scenarioId}
+                  onChange={(e) => setScenarioId(e.target.value ? Number(e.target.value) : "")}
+                  disabled={!!jobId}
+                >
+                  <option value="">— выберите —</option>
+                  {scenarios?.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <label className="checkbox-row playground-setup-checkbox">
+                <input
+                  type="checkbox"
+                  checked={useScenarioPrompt}
+                  onChange={(e) => setUseScenarioPrompt(e.target.checked)}
+                  disabled={!!jobId}
+                />
+                Использовать промпт из сценария
+              </label>
+            </div>
+            {!useScenarioPrompt && (
+              <div className="form-group">
+                <label>Тестовый промпт</label>
+                <textarea
+                  value={customPrompt}
+                  onChange={(e) => setCustomPrompt(e.target.value)}
+                  rows={4}
+                  disabled={!!jobId}
+                />
+              </div>
+            )}
+            {!jobId ? (
               <button
                 type="button"
                 className="btn btn-primary"
-                onClick={() => promoteAll.mutate()}
-                disabled={promoteAll.isPending || isProcessing(job)}
-                title="Сохранить все успешно проанализированные файлы сессии"
+                onClick={() => createJob.mutate()}
+                disabled={createJob.isPending}
               >
-                {promoteAll.isPending ? "Сохранение…" : `Сохранить все в базу (${readyFilesCount})`}
+                {createJob.isPending ? "Создание…" : "Начать"}
               </button>
+            ) : (
+              <>
+                <div
+                  className="dropzone"
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => { e.preventDefault(); onDrop(e.dataTransfer.files); }}
+                >
+                  Перетащите .mp3 / .wav
+                  <br />
+                  <input type="file" multiple accept=".mp3,.wav" onChange={(e) => onDrop(e.target.files)} />
+                </div>
+                <div className="playground-setup-actions">
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    onClick={() => runAnalysis.mutate()}
+                    disabled={!canRun}
+                  >
+                    {runAnalysis.isPending || isProcessing(job) ? "Обработка…" : "Запустить анализ"}
+                  </button>
+                </div>
+                {!canRun && job && job.files.length > 0 && !isProcessing(job) && (
+                  <p className="text-hint">Все файлы уже обработаны. Загрузите новый файл или дождитесь завершения текущего анализа.</p>
+                )}
+                {isProcessing(job) && (
+                  <p className="text-hint">Идёт распознавание и анализ — первая загрузка модели ASR может занять 3–5 минут.</p>
+                )}
+                {job && job.files.length > 0 && (
+                  <div className="progress">
+                    <div className="progress__track">
+                      <div className="progress__fill" style={{ width: `${progress}%` }} />
+                    </div>
+                    <p className="progress__label">{progress}% завершено</p>
+                  </div>
+                )}
+              </>
+            )}
+            {actionError && <p className="text-error">{actionError}</p>}
+            {actionHint && <p className="text-success">{actionHint}</p>}
+          </div>
+        )}
+
+        {jobId && (
+          <div className="card playground-results">
+            <div className="card-header">
+              <h3>Результаты</h3>
+              {readyFilesCount > 0 && (
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => promoteAll.mutate()}
+                  disabled={promoteAll.isPending || isProcessing(job)}
+                  title="Сохранить все успешно проанализированные файлы сессии"
+                >
+                  {promoteAll.isPending ? "Сохранение…" : `Сохранить все в базу (${readyFilesCount})`}
+                </button>
+              )}
+            </div>
+            {!job?.files.length ? (
+              <p className="empty">Загрузите файлы выше</p>
+            ) : (
+              <ul className="list-plain">
+                {job.files.map((f) => (
+                  <li
+                    key={f.id}
+                    className={`list-item${selected?.id === f.id ? " list-item--active" : ""}`}
+                    onClick={() => selectFile(f)}
+                  >
+                    {f.filename} — <span className="badge badge-gray">{STATUS_LABEL[f.status] || f.status}</span>
+                    {f.error_message && <span className="list-item__error">{f.error_message}</span>}
+                    {f.analysis?.total_score != null && <> <ScoreBadge score={f.analysis.total_score} /></>}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
-          {!job ? (
-            <p className="empty">Создайте сессию и загрузите файлы</p>
-          ) : (
-            <ul className="list-plain">
-              {job.files.map((f) => (
-                <li
-                  key={f.id}
-                  className={`list-item${selected?.id === f.id ? " list-item--active" : ""}`}
-                  onClick={() => selectFile(f)}
-                >
-                  {f.filename} — <span className="badge badge-gray">{STATUS_LABEL[f.status] || f.status}</span>
-                  {f.error_message && <span className="list-item__error">{f.error_message}</span>}
-                  {f.analysis?.total_score != null && <> <ScoreBadge score={f.analysis.total_score} /></>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
+        )}
       </div>
 
       {selected?.status === "ready" && (

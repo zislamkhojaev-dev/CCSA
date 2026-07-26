@@ -27,3 +27,6 @@ models/*/
 !models/README.md
 benchmark/results/
 backend/.venv-benchmark/
+# Celery Beat local schedule DB (runtime artifact)
+backend/celerybeat-schedule
+backend/celerybeat-schedule.*
