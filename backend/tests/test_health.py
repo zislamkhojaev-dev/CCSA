@@ -14,3 +14,5 @@ def test_health():
 def test_ready():
     r = client.get("/api/v1/ready")
     assert r.status_code == 200
+    body = r.json()
+    assert "status" in body or "database" in body or isinstance(body, dict)

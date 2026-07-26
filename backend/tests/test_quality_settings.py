@@ -1,4 +1,4 @@
-"""Tests for quality thresholds and topic taxonomy config."""
+"""Quality thresholds and topic taxonomy config."""
 
 from app.services.quality_settings import (
     DEFAULT_TAXONOMY,
@@ -22,7 +22,7 @@ def test_parse_topics_invalid_falls_back():
 def test_normalize_config_clamps_and_orders_thresholds():
     cfg = normalize_config(threshold_good=70, threshold_mid=90, target=120, topics=["A", "a", "B"])
     assert cfg.threshold_good == 70
-    assert cfg.threshold_mid == 70  # mid can't exceed good
+    assert cfg.threshold_mid == 70
     assert cfg.target == 100
     assert cfg.topics == ["A", "B"]
 

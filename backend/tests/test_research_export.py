@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 
 from app.services.research_export import (
+    build_research_json_export,
     build_research_markdown_export,
     research_export_filename,
 )
@@ -13,10 +14,12 @@ def _study(**kwargs):
         "title": "Жалобы клиентов",
         "prompt": "Какие основные жалобы?",
         "filters_json": {"date_from": "2026-05-01", "date_to": "2026-05-31"},
+        "status": "completed",
         "call_count": 2,
         "call_ids": [10, 11],
         "llm_model": "gpt-4o-mini",
         "report_markdown": "## Итог\n\nКлиенты недовольны сроками.",
+        "error_message": None,
         "created_at": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
         "finished_at": datetime(2026, 5, 20, 12, 5, tzinfo=timezone.utc),
         "user": SimpleNamespace(full_name="Administrator"),
@@ -39,3 +42,14 @@ def test_build_research_markdown_export_includes_sections():
     assert "Клиенты недовольны сроками." in md
     assert "от 2026-05-01" in md
     assert "#10, #11" in md
+
+
+def test_build_research_json_export():
+    payload = build_research_json_export(_study())
+    assert payload["id"] == 7
+    assert payload["title"] == "Жалобы клиентов"
+    assert payload["status"] == "completed"
+    assert payload["call_ids"] == [10, 11]
+    assert payload["user_name"] == "Administrator"
+    assert payload["filters"]["date_from"] == "2026-05-01"
+    assert payload["created_at"].startswith("2026-05-20")

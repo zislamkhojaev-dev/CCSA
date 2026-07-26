@@ -4,6 +4,7 @@ from app.services.call_query import SORT_COLUMNS, build_calls_count_query, build
 def test_sort_columns_defined():
     assert "operator_name" in SORT_COLUMNS
     assert "total_score" in SORT_COLUMNS
+    assert "call_timestamp" in SORT_COLUMNS or "created_at" in SORT_COLUMNS
 
 
 def test_build_list_query_compiles():
@@ -15,8 +16,9 @@ def test_build_list_query_compiles():
         sort_by="total_score",
         sort_order="desc",
     )
-    compiled = str(q)
-    assert "operators" in compiled.lower() or "operator" in compiled.lower()
+    compiled = str(q).lower()
+    assert "operator" in compiled
+    assert "total_score" in compiled
 
 
 def test_build_list_query_with_tag_filter():
@@ -29,3 +31,4 @@ def test_build_list_query_with_tag_filter():
 def test_build_count_query_compiles():
     q = build_calls_count_query(client_match="eq", client_value="+99890")
     assert q is not None
+    assert "99890" in str(q) or "client" in str(q).lower()

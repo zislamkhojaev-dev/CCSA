@@ -1,24 +1,18 @@
 from app.services.research_query import (
     build_research_calls_by_ids_query,
-    build_research_count_query,
     build_research_calls_query,
+    build_research_count_query,
 )
 
 
 def test_build_research_count_query_compiles():
-    q = build_research_count_query(
-        direction="inbound",
-        operator_id=1,
-    )
+    q = build_research_count_query(direction="inbound", operator_id=1)
     compiled = str(q).lower()
-    assert "transcriptions" in compiled or "call" in compiled
+    assert "call" in compiled
 
 
 def test_build_research_calls_query_compiles():
-    q = build_research_calls_query(
-        direction="outbound",
-        operator_id=2,
-    )
+    q = build_research_calls_query(direction="outbound", operator_id=2)
     compiled = str(q).lower()
     assert "full_text" in compiled or "transcription" in compiled
 

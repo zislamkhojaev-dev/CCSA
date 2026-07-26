@@ -38,3 +38,8 @@ def test_effective_duration_prefers_call_column():
 def test_effective_duration_from_utterances():
     utterances = [{"start": 0, "end": 30, "text": "hi"}]
     assert effective_duration_seconds(None, utterances) == 30
+
+
+def test_effective_duration_from_transcription_when_column_missing():
+    trans = {"channels": {"mixed": {"duration_sec": 55.0}}}
+    assert effective_duration_seconds(None, None, transcription=trans) == 55

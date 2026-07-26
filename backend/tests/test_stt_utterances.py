@@ -1,6 +1,5 @@
 from stt.utterance_utils import (
     chunks_to_utterances,
-    group_words_to_utterances,
     merge_utterances,
     timestamps_degenerate,
     utterance_sort_key,
