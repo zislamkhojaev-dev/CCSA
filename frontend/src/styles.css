@@ -219,6 +219,23 @@
   line-height: 1.45;
 }
 
+.criteria-checklist__toggle {
+  margin-top: 0.25rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: var(--font-medium);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.criteria-checklist__toggle:hover {
+  color: var(--text);
+}
+
 .calls-filters {
   --calls-filter-control-h: var(--control-h-sm);
   margin-bottom: var(--space-3);

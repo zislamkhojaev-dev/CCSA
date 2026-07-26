@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 export type CriterionResult = {
   score: number;
   passed: boolean;
@@ -31,7 +33,11 @@ function parseCriterion(value: unknown): CriterionResult | null {
 
 function CriterionIcon({ passed, status }: { passed: boolean; status?: string }) {
   if (status === "not_applicable") {
-    return <span className="criteria-checklist__icon criteria-checklist__icon--na" title="Не применимо">—</span>;
+    return (
+      <span className="criteria-checklist__icon criteria-checklist__icon--na" title="Не применимо">
+        —
+      </span>
+    );
   }
   return (
     <span
@@ -40,6 +46,49 @@ function CriterionIcon({ passed, status }: { passed: boolean; status?: string })
     >
       {passed ? "✓" : "✗"}
     </span>
+  );
+}
+
+function CriterionRow({ itemKey, raw }: { itemKey: string; raw: unknown }) {
+  const [open, setOpen] = useState(false);
+  const c = parseCriterion(raw);
+
+  if (!c) {
+    return (
+      <li className="criteria-checklist__item criteria-checklist__item--invalid">
+        <span className="criteria-checklist__name">{criterionLabel(itemKey)}</span>
+        <span className="criteria-checklist__comment">{String(raw)}</span>
+      </li>
+    );
+  }
+
+  const hasComment = Boolean(c.comment?.trim());
+
+  return (
+    <li
+      className={`criteria-checklist__item ${c.passed ? "criteria-checklist__item--passed" : "criteria-checklist__item--failed"}`}
+    >
+      <CriterionIcon passed={c.passed} status={c.status} />
+      <div className="criteria-checklist__body">
+        <div className="criteria-checklist__head">
+          <span className="criteria-checklist__name">{criterionLabel(itemKey)}</span>
+          <span className="criteria-checklist__score">{c.score} б.</span>
+        </div>
+        {hasComment && (
+          <>
+            <button
+              type="button"
+              className="criteria-checklist__toggle"
+              aria-expanded={open}
+              onClick={() => setOpen((v) => !v)}
+            >
+              {open ? "Скрыть комментарий" : "Комментарий"}
+            </button>
+            {open && <p className="criteria-checklist__comment">{c.comment}</p>}
+          </>
+        )}
+      </div>
+    </li>
   );
 }
 
@@ -55,29 +104,9 @@ export default function CriteriaChecklist({ criteria, emptyMessage = "Нет д�
 
   return (
     <ul className="criteria-checklist">
-      {Object.entries(criteria).map(([key, raw]) => {
-        const c = parseCriterion(raw);
-        if (!c) {
-          return (
-            <li key={key} className="criteria-checklist__item criteria-checklist__item--invalid">
-              <span className="criteria-checklist__name">{criterionLabel(key)}</span>
-              <span className="criteria-checklist__comment">{String(raw)}</span>
-            </li>
-          );
-        }
-        return (
-          <li key={key} className={`criteria-checklist__item ${c.passed ? "criteria-checklist__item--passed" : "criteria-checklist__item--failed"}`}>
-            <CriterionIcon passed={c.passed} status={c.status} />
-            <div className="criteria-checklist__body">
-              <div className="criteria-checklist__head">
-                <span className="criteria-checklist__name">{criterionLabel(key)}</span>
-                <span className="criteria-checklist__score">{c.score} б.</span>
-              </div>
-              {c.comment && <p className="criteria-checklist__comment">{c.comment}</p>}
-            </div>
-          </li>
-        );
-      })}
+      {Object.entries(criteria).map(([key, raw]) => (
+        <CriterionRow key={key} itemKey={key} raw={raw} />
+      ))}
     </ul>
   );
 }

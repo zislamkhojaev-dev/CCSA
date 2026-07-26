@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Copy, FileDown } from "lucide-react";
 import { api, scoreBadge } from "../api/client";
 import AudioWaveform from "../components/AudioWaveform";
 import CriteriaChecklist from "../components/CriteriaChecklist";
@@ -10,7 +11,7 @@ import { exportCallTranscript } from "../utils/exportTranscript";
 import TagMultiPicker, { type TagItem } from "../components/TagMultiPicker";
 import { sortUtterances } from "../utils/transcript";
 
-type Utterance = { speaker: string; text: string; start: number; end: number };
+type Utterance = { speaker: string; start: number; end: number; text: string };
 
 type CallDetail = {
   id: number;
@@ -43,6 +44,13 @@ function highlightText(text: string) {
     .replace(positive, (m) => `<span class="trigger-positive">${m}</span>`);
 }
 
+function formatDuration(sec: number | null): string {
+  if (sec == null) return "—";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}м ${s}с` : `${s}с`;
+}
+
 export default function CallDetailPage() {
   const { id } = useParams();
   const qc = useQueryClient();
@@ -50,6 +58,7 @@ export default function CallDetailPage() {
   const [note, setNote] = useState("");
   const [tags, setTags] = useState<TagItem[]>([]);
   const [actionHint, setActionHint] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const { data, isLoading, isError, error } = useQuery({
     queryKey: ["call", id],
@@ -119,6 +128,14 @@ export default function CallDetailPage() {
   const busy = processing || reanalyze.isPending || retranscribe.isPending;
   const hasTranscript = utterances.length > 0 || Boolean(trans?.full_text?.trim());
 
+  const statusBadgeClass = processing
+    ? "badge-yellow"
+    : data.status === "error"
+      ? "badge-red"
+      : data.status === "analyzed"
+        ? "badge-green"
+        : "badge-gray";
+
   const handleExportTranscript = () => {
     const ok = exportCallTranscript(
       {
@@ -129,14 +146,112 @@ export default function CallDetailPage() {
         durationSec: data.duration,
       },
       trans?.full_text,
-      utterances
+      utterances,
     );
     if (!ok) setActionHint("Нет текста расшифровки для экспорта");
   };
 
+  const copyUuid = async () => {
+    try {
+      await navigator.clipboard.writeText(data.call_uuid);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setActionHint("Не удалось скопировать UUID");
+    }
+  };
+
   return (
-    <>
-      <h1 className="page-title">Звонок #{data.id}</h1>
+    <div className="call-detail">
+      <Link to="/calls" className="back-link">
+        ← К списку звонков
+      </Link>
+
+      <header className="call-detail-header">
+        <div className="call-detail-header-main">
+          <div className="call-detail-title-row">
+            <h1 className="page-title call-detail-title">Звонок #{data.id}</h1>
+            <p className={`call-detail-score score-big ${scoreClass}`}>
+              {analysis?.total_score != null ? `${analysis.total_score}/100` : "—"}
+            </p>
+            <span className={`badge ${statusBadgeClass}`}>{callStatusLabel(data.status)}</span>
+            {analysis?.topic && <span className="badge badge-gray">{analysis.topic}</span>}
+          </div>
+          <p className="call-detail-meta">
+            <span>{data.operator_name || "Оператор —"}</span>
+            <span className="call-detail-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span>{data.client_number || "Клиент —"}</span>
+            <span className="call-detail-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span>
+              {data.call_timestamp ? new Date(data.call_timestamp).toLocaleString("ru") : "—"}
+            </span>
+            <span className="call-detail-meta-sep" aria-hidden>
+              ·
+            </span>
+            <span>{formatDuration(data.duration)}</span>
+            {trans?.model_name && (
+              <>
+                <span className="call-detail-meta-sep" aria-hidden>
+                  ·
+                </span>
+                <span
+                  className="call-detail-asr"
+                  title={
+                    trans.model_name === "mock"
+                      ? `${trans.model_name} (модель не загружена — см. логи stt-service)`
+                      : trans.model_name
+                  }
+                >
+                  ASR: {trans.model_name.split("/").pop() || trans.model_name}
+                </span>
+              </>
+            )}
+            <button
+              type="button"
+              className="btn btn-secondary btn-icon call-detail-copy-uuid"
+              onClick={copyUuid}
+              title={copied ? "Скопировано" : "Копировать UUID"}
+              aria-label={copied ? "UUID скопирован" : "Копировать UUID"}
+            >
+              <Copy size={14} />
+            </button>
+            {copied && <span className="text-hint">Скопировано</span>}
+          </p>
+        </div>
+
+        <div className="call-detail-header-actions">
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={handleExportTranscript}
+            disabled={!hasTranscript || busy}
+            title={hasTranscript ? "Скачать текст диалога (.txt)" : "Транскрипт ещё не готов"}
+          >
+            <FileDown size={14} aria-hidden />
+            Экспорт
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => retranscribe.mutate()}
+            disabled={busy}
+          >
+            {retranscribe.isPending || data.status === "transcribing" ? "ASR…" : "Повтор ASR"}
+          </button>
+          <button
+            type="button"
+            className="btn btn-secondary btn-sm"
+            onClick={() => reanalyze.mutate()}
+            disabled={busy}
+          >
+            {reanalyze.isPending || data.status === "analyzing" ? "LLM…" : "Повтор LLM"}
+          </button>
+        </div>
+      </header>
 
       {(statusBanner || actionHint) && (
         <div
@@ -150,62 +265,89 @@ export default function CallDetailPage() {
         </div>
       )}
 
-      <div className="grid-3">
-        <div className="card">
-          <p className="meta-line">ID: {data.id} · {data.call_uuid}</p>
-          <div className="detail-list">
-            <p><strong>Оператор:</strong> {data.operator_name || "—"}</p>
-            <p><strong>Клиент:</strong> {data.client_number || "—"}</p>
-            <p><strong>Дата:</strong> {data.call_timestamp ? new Date(data.call_timestamp).toLocaleString("ru") : "—"}</p>
-            <p><strong>Длительность:</strong> {data.duration ? `${data.duration} с` : "—"}</p>
-            <p>
-              <strong>Статус:</strong>{" "}
-              <span className={`badge ${processing ? "badge-yellow" : data.status === "error" ? "badge-red" : "badge-gray"}`}>
-                {callStatusLabel(data.status)}
-              </span>
-            </p>
-          </div>
-          {data.error_message && (
-            <p className="text-error"><strong>Ошибка:</strong> {data.error_message}</p>
-          )}
-          {trans && (
-            <p className="text-hint">
-              ASR: {trans.model_name || "—"}
-              {trans.model_name === "mock" && " (модель не загружена — см. логи stt-service)"}
-            </p>
-          )}
-          <hr className="divider" />
-          <p className={`score-big ${scoreClass}`}>
-            {analysis?.total_score != null ? `${analysis.total_score}/100` : "—"}
-          </p>
-          {analysis && !processing && (
-            <>
-              <h4>ИИ-суммаризация</h4>
-              <p>{analysis.summary}</p>
-              <p><strong>Боли клиента:</strong> {analysis.client_pains || "—"}</p>
-              <p><strong>Тема:</strong> {analysis.topic || "—"}</p>
-              <p><strong>Итог:</strong> {analysis.call_outcome || "—"}</p>
-            </>
-          )}
-          {processing && (
-            <p className="text-hint">Суммаризация и чек-лист обновятся после завершения обработки.</p>
-          )}
-          <h4>Чек-лист</h4>
-          <CriteriaChecklist criteria={analysis?.criteria_results} />
-        </div>
+      {data.error_message && data.status === "error" && (
+        <p className="text-error call-detail-error">
+          <strong>Ошибка:</strong> {data.error_message}
+        </p>
+      )}
 
-        <div className="card">
-          <div className="card-header">
-            <h4>Расшифровка</h4>
+      <div className="call-detail-grid">
+        <aside className="call-detail-analysis">
+          <section className="card call-detail-section">
+            <h3 className="call-detail-section-title">Вердикт</h3>
+            {analysis && !processing ? (
+              <>
+                {analysis.call_outcome && (
+                  <div className="call-detail-outcome">
+                    <span className="call-detail-label">Итог</span>
+                    <p>{analysis.call_outcome}</p>
+                  </div>
+                )}
+                {analysis.summary && (
+                  <div className="call-detail-block">
+                    <span className="call-detail-label">Суммаризация</span>
+                    <p>{analysis.summary}</p>
+                  </div>
+                )}
+                {analysis.client_pains && (
+                  <div className="call-detail-block">
+                    <span className="call-detail-label">Боли клиента</span>
+                    <p>{analysis.client_pains}</p>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-hint">
+                {processing
+                  ? "Суммаризация и чек-лист обновятся после завершения обработки."
+                  : "Анализ ещё не выполнен."}
+              </p>
+            )}
+          </section>
+
+          <section className="card call-detail-section">
+            <h3 className="call-detail-section-title">Теги</h3>
+            <TagMultiPicker value={tags} onChange={setTags} disabled={busy} />
             <button
               type="button"
-              className="btn btn-secondary"
-              onClick={handleExportTranscript}
-              disabled={!hasTranscript || busy}
-              title={hasTranscript ? "Скачать текст диалога (.txt)" : "Транскрипт ещё не готов"}
+              className="btn btn-secondary btn-sm"
+              onClick={() => saveTags.mutate()}
+              disabled={busy || saveTags.isPending}
             >
-              Экспорт расшифровки
+              {saveTags.isPending ? "Сохранение…" : "Сохранить теги"}
             </button>
+          </section>
+
+          <section className="card call-detail-section">
+            <h3 className="call-detail-section-title">Комментарии</h3>
+            <textarea
+              className="form-input"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Ваш комментарий…"
+              rows={3}
+              disabled={busy}
+            />
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              style={{ marginTop: "var(--space-2)" }}
+              onClick={() => addNote.mutate()}
+              disabled={!note.trim() || busy || addNote.isPending}
+            >
+              Добавить
+            </button>
+            {data.notes.map((n) => (
+              <div key={n.id} className="note-item">
+                <strong>{n.user_name}</strong> ({new Date(n.created_at).toLocaleString("ru")}): {n.text}
+              </div>
+            ))}
+          </section>
+        </aside>
+
+        <section className="card call-detail-transcript">
+          <div className="card-header">
+            <h3 className="call-detail-section-title">Расшифровка</h3>
           </div>
           <AudioWaveform
             audioUrl={data.audio_url}
@@ -215,7 +357,7 @@ export default function CallDetailPage() {
               seekRef.current = seek;
             }}
           />
-          <div className="scroll-panel">
+          <div className="scroll-panel call-detail-transcript-scroll">
             <TranscriptList
               utterances={utterances}
               fullText={trans?.full_text}
@@ -224,66 +366,22 @@ export default function CallDetailPage() {
               emptyMessage={
                 processing
                   ? "Транскрипт появится после распознавания…"
-                  : "Транскрипт отсутствует. Запустите «Повторное распознавание (ASR)»."
+                  : "Транскрипт отсутствует. Запустите «Повтор ASR»."
               }
             />
           </div>
-        </div>
+        </section>
 
-        <div className="card">
-          <h4>Теги</h4>
-          <TagMultiPicker value={tags} onChange={setTags} disabled={busy} />
-          <button
-            type="button"
-            className="btn btn-secondary"
-            onClick={() => saveTags.mutate()}
-            disabled={busy}
-          >
-            Сохранить теги
-          </button>
-          <hr className="divider" />
-          <h4>Комментарий супервизора</h4>
-          <textarea
-            className="form-input"
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="Ваш комментарий..."
-            rows={4}
-            disabled={busy}
-          />
-          <button type="button" className="btn btn-primary" style={{ marginTop: "var(--space-2)" }} onClick={() => addNote.mutate()} disabled={!note.trim() || busy}>
-            Добавить
-          </button>
-          {data.notes.map((n) => (
-            <div key={n.id} className="note-item">
-              <strong>{n.user_name}</strong> ({new Date(n.created_at).toLocaleString("ru")}): {n.text}
-            </div>
-          ))}
-          <hr className="divider" />
-          <div className="btn-stack">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => retranscribe.mutate()}
-              disabled={busy}
-            >
-              {retranscribe.isPending || data.status === "transcribing"
-                ? "Распознавание ASR…"
-                : "Повторное распознавание (ASR)"}
-            </button>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => reanalyze.mutate()}
-              disabled={busy}
-            >
-              {reanalyze.isPending || data.status === "analyzing"
-                ? "Анализ LLM…"
-                : "Повторный анализ (LLM)"}
-            </button>
-          </div>
-        </div>
+        <aside className="call-detail-sidebar">
+          <section className="card call-detail-section call-detail-checklist">
+            <h3 className="call-detail-section-title">Чек-лист</h3>
+            <CriteriaChecklist
+              criteria={analysis?.criteria_results}
+              emptyMessage={processing ? "Чек-лист появится после анализа…" : "Нет данных чек-листа"}
+            />
+          </section>
+        </aside>
       </div>
-    </>
+    </div>
   );
 }
