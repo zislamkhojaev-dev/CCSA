@@ -5,7 +5,6 @@ from sqlalchemy import select
 from app.models import AutomationRule, Criterion, Scenario, Transcription
 from app.services.llm import analyze_transcript
 from app.services.quality_settings import DEFAULT_TAXONOMY, parse_topics
-from worker.db import get_sync_session
 from worker.settings_sync import get_setting_sync
 
 

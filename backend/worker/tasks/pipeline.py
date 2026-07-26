@@ -351,7 +351,7 @@ def process_pending_batch() -> None:
     from sqlalchemy import select
 
     from app.models import AutomationRule
-    from worker.schedule_utils import is_within_sync_window, parse_sync_days
+    from worker.schedule_utils import is_within_sync_window
     from worker.settings_sync import get_setting_sync
 
     with get_sync_session() as db:

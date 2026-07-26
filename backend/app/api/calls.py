@@ -2,7 +2,7 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,8 +16,6 @@ from app.models import (
     Call,
     CallExportJob,
     CallTag,
-    Operator,
-    Scenario,
     SupervisorNote,
     Tag,
     Transcription,

@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import get_settings
 from app.models import Criterion, Scenario
-from app.services.pii import CLOUD_PROVIDERS, prepare_text_for_llm
+from app.services.pii import prepare_text_for_llm
 from app.services.quality_settings import UNCLASSIFIED_TOPIC
 
 logger = logging.getLogger(__name__)

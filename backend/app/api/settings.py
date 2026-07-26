@@ -22,6 +22,8 @@ from app.schemas.settings import (
 )
 from app.services.quality_settings import load_quality_config, normalize_config
 from app.services.settings_store import get_bool_setting, get_setting, set_setting
+from app.services.webitel import WebitelClient
+from app.services.webitel_db import test_connection as test_webitel_db
 
 
 def _parse_int_setting(raw: str, default: int, *, min_val: int, max_val: int) -> int:
@@ -30,8 +32,7 @@ def _parse_int_setting(raw: str, default: int, *, min_val: int, max_val: int) ->
     except (TypeError, ValueError):
         value = default
     return max(min_val, min(max_val, value))
-from app.services.webitel import WebitelClient
-from app.services.webitel_db import test_connection as test_webitel_db
+
 
 router = APIRouter()
 

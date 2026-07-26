@@ -110,7 +110,7 @@ async def build_dashboard_export(
 def _csv_filter_preamble(payload: dict[str, Any]) -> list[str]:
     """Comment lines describing export filters (skipped by most CSV tools)."""
     lines = [
-        f"# CCSA dashboard export",
+        "# CCSA dashboard export",
         f"# exported_at: {payload.get('exported_at', '')}",
     ]
     summary = payload.get("filter_summary") or {}
