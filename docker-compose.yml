@@ -85,15 +85,30 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: celery -A worker.celery_app worker --loglevel=info --concurrency=${CELERY_WORKER_CONCURRENCY:-1}
+    command: celery -A worker.celery_app worker --loglevel=info -Q llm,io --concurrency=${CELERY_LLM_CONCURRENCY:-2} --hostname=llm@%h
     env_file: .env
-    environment:
+    environment: &celery-env
       DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       MINIO_ENDPOINT: minio:9000
       STT_SERVICE_URL: http://stt-service:8001
+    volumes:
+      - ./backend:/app
+    depends_on:
+      - api
+      - redis
+      - postgres
+      - stt-service
+
+  celery-worker-stt:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: celery -A worker.celery_app worker --loglevel=info -Q stt --concurrency=1 --hostname=stt@%h
+    env_file: .env
+    environment: *celery-env
     volumes:
       - ./backend:/app
     depends_on:
@@ -115,6 +130,7 @@ services:
       - ./backend:/app
     depends_on:
       - celery-worker
+      - celery-worker-stt
 
   stt-service:
     build:
@@ -131,6 +147,7 @@ services:
       STT_COMPUTE_TYPE: ${STT_COMPUTE_TYPE:-int8}
       STT_DIARIZATION_METHOD: ${STT_DIARIZATION_METHOD:-stereo_channels}
       STT_LANGUAGE: ${STT_LANGUAGE:-uz}
+      STT_INITIAL_PROMPT: ${STT_INITIAL_PROMPT:-}
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
       MINIO_ENDPOINT: minio:9000

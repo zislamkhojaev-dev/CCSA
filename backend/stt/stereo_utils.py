@@ -36,6 +36,8 @@ def split_stereo_to_channels(audio_bytes: bytes) -> tuple[bytes | None, bytes | 
     """
     from pydub import AudioSegment
 
+    from stt.audio_prep import prepare_segment
+
     seg = AudioSegment.from_file(BytesIO(audio_bytes))
     if seg.channels < 2:
         return None, None, "mono"
@@ -50,6 +52,8 @@ def split_stereo_to_channels(audio_bytes: bytes) -> tuple[bytes | None, bytes | 
         client_ch, agent_ch = right, left
         mapping = "right=client, left=agent"
 
+    client_ch = prepare_segment(client_ch, mono=True)
+    agent_ch = prepare_segment(agent_ch, mono=True)
     buf_client, buf_agent = BytesIO(), BytesIO()
     client_ch.export(buf_client, format="wav")
     agent_ch.export(buf_agent, format="wav")

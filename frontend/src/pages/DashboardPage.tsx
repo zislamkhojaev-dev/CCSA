@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   DndContext,
@@ -19,6 +19,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { LayoutGrid, Pencil, Plus, RotateCcw, Save } from "lucide-react";
 import { api } from "../api/client";
 import {
+  buildDashboardBatchBody,
+  dashboardFiltersKey,
   downloadDashboardExport,
   loadDashboardFilters,
   saveDashboardFilters,
@@ -36,9 +38,9 @@ import {
   normalizeWidget,
   suggestedWidgetDimensions,
   widgetGridClasses,
-  widgetCardClasses,
   type DashboardLayout,
   type DashboardWidget,
+  type WidgetMetricData,
   defaultWidgetType,
 } from "../types/dashboard";
 
@@ -48,12 +50,16 @@ function SortableWidget({
   editing,
   onEdit,
   onRemove,
+  metricData,
+  metricLoading,
 }: {
   widget: DashboardWidget;
   filters: DashboardFiltersState;
   editing: boolean;
   onEdit: () => void;
   onRemove: () => void;
+  metricData?: WidgetMetricData;
+  metricLoading?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: widget.id,
@@ -77,6 +83,8 @@ function SortableWidget({
         editing={editing}
         onEdit={onEdit}
         onRemove={onRemove}
+        metricData={metricData}
+        metricLoading={metricLoading}
         dragHandleProps={editing ? { attributes, listeners } : undefined}
       />
     </div>
@@ -103,10 +111,26 @@ export default function DashboardPage() {
     }
   }, [layoutData, dirty]);
 
+  const metricKeys = useMemo(
+    () => [...new Set(widgets.map((w) => normalizeWidget(w).metric))],
+    [widgets],
+  );
+  const { data: metricsBatch, isLoading: metricsLoading } = useQuery({
+    queryKey: ["dashboard-metrics", metricKeys, ...dashboardFiltersKey(filters)],
+    queryFn: () =>
+      api.post<{ items: Record<string, WidgetMetricData> }>(
+        "/dashboard/metrics/batch",
+        buildDashboardBatchBody(metricKeys, filters),
+      ),
+    enabled: metricKeys.length > 0,
+    staleTime: 60_000,
+  });
+
   const saveMutation = useMutation({
     mutationFn: (layout: DashboardLayout) => api.put<DashboardLayout>("/dashboard/layout", layout),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["dashboard-layout"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-metrics"] });
       qc.invalidateQueries({ queryKey: ["dashboard-metric"] });
       setDirty(false);
       setEditing(false);
@@ -166,7 +190,6 @@ export default function DashboardPage() {
   const handleFiltersChange = (next: DashboardFiltersState) => {
     setFilters(next);
     saveDashboardFilters(next);
-    qc.invalidateQueries({ queryKey: ["dashboard-metric"] });
   };
 
   const handleExport = async (format: "json" | "csv") => {
@@ -262,6 +285,8 @@ export default function DashboardPage() {
                 editing={editing}
                 onEdit={() => setEditorWidget(w)}
                 onRemove={() => removeWidget(w.id)}
+                metricData={metricsBatch?.items?.[normalizeWidget(w).metric]}
+                metricLoading={metricsLoading}
               />
             ))}
           </div>

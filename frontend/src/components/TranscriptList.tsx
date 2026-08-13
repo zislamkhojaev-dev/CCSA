@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { formatTime, sortUtterances, speakerClass, speakerLabel } from "../utils/transcript";
 
 type Utterance = { speaker: string; text: string; start: number; end?: number };
@@ -41,7 +41,7 @@ export default function TranscriptList({
   );
 }
 
-function UtteranceBubble({
+const UtteranceBubble = memo(function UtteranceBubble({
   u,
   onSeek,
   renderText,
@@ -64,4 +64,4 @@ function UtteranceBubble({
       <div className="transcript-text">{body}</div>
     </div>
   );
-}
+});

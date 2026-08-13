@@ -2,7 +2,7 @@
 
 from datetime import UTC, datetime
 
-from sqlalchemy import Date, cast, func, select
+from sqlalchemy import Date, case, cast, func, select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import AnalysisResult, Call, Criterion, Operator, Transcription
@@ -87,24 +87,6 @@ async def _call_durations_in_period(db: AsyncSession, filters: DashboardFilters)
     return durations
 
 
-async def _fetch_analysis_rows(db: AsyncSession, filters: DashboardFilters) -> list[tuple]:
-    """Fetch (criteria_results, total_score, operator_id, operator_name) for analyzed calls."""
-    q = (
-        select(
-            AnalysisResult.criteria_results,
-            AnalysisResult.total_score,
-            Call.operator_id,
-            Operator.full_name,
-        )
-        .select_from(AnalysisResult)
-        .join(Call, Call.id == AnalysisResult.call_id)
-        .outerjoin(Operator, Operator.id == Call.operator_id)
-    )
-    q = apply_call_filters(q, filters)
-    result = await db.execute(q)
-    return list(result.all())
-
-
 async def _criterion_name_map(db: AsyncSession, scenario_id: int | None = None) -> dict[str, str]:
     q = select(Criterion.key, Criterion.name)
     if scenario_id:
@@ -115,6 +97,60 @@ async def _criterion_name_map(db: AsyncSession, scenario_id: int | None = None) 
         if key:
             mapping[key] = name or key
     return mapping
+
+
+def _criteria_lateral():
+    return (
+        func.jsonb_each(AnalysisResult.criteria_results)
+        .table_valued("key", "value")
+        .lateral()
+        .alias("crit")
+    )
+
+
+def _criteria_applicable(crit):
+    status_text = func.coalesce(crit.c.value["status"].astext, "")
+    return status_text != "not_applicable"
+
+
+async def _criteria_pass_rows(db: AsyncSession, filters: DashboardFilters) -> list[tuple]:
+    crit = _criteria_lateral()
+    passed_expr = case((crit.c.value["passed"].astext == "true", 1), else_=0)
+    q = (
+        select(
+            crit.c.key.label("key"),
+            func.count().label("total"),
+            func.sum(passed_expr).label("passed"),
+        )
+        .select_from(AnalysisResult)
+        .join(Call, Call.id == AnalysisResult.call_id)
+        .join(crit, true())
+        .where(_criteria_applicable(crit))
+    )
+    q = apply_call_filters(q, filters).group_by(crit.c.key)
+    result = await db.execute(q)
+    return list(result.all())
+
+
+async def _criteria_operator_rows(db: AsyncSession, filters: DashboardFilters) -> list[tuple]:
+    crit = _criteria_lateral()
+    passed_expr = case((crit.c.value["passed"].astext == "true", 1), else_=0)
+    q = (
+        select(
+            crit.c.key.label("key"),
+            Operator.full_name.label("operator_name"),
+            func.count().label("total"),
+            func.sum(passed_expr).label("passed"),
+        )
+        .select_from(AnalysisResult)
+        .join(Call, Call.id == AnalysisResult.call_id)
+        .outerjoin(Operator, Operator.id == Call.operator_id)
+        .join(crit, true())
+        .where(_criteria_applicable(crit))
+    )
+    q = apply_call_filters(q, filters).group_by(crit.c.key, Operator.full_name)
+    result = await db.execute(q)
+    return list(result.all())
 
 
 async def fetch_widget_metric(
@@ -468,25 +504,12 @@ async def fetch_widget_metric(
         )
 
     if metric == "criteria_pass_rate":
-        rows = await _fetch_analysis_rows(db, filters)
+        rows = await _criteria_pass_rows(db, filters)
         name_map = await _criterion_name_map(db, filters.scenario_id)
-        passed: dict[str, int] = {}
-        total_c: dict[str, int] = {}
-        for criteria_results, _score, _op_id, _op_name in rows:
-            if not isinstance(criteria_results, dict):
-                continue
-            for key, res in criteria_results.items():
-                if not isinstance(res, dict):
-                    continue
-                if res.get("status") == "not_applicable":
-                    continue
-                total_c[key] = total_c.get(key, 0) + 1
-                if res.get("passed"):
-                    passed[key] = passed.get(key, 0) + 1
         items = [
-            (key, round(passed.get(key, 0) / n * 100, 1), n)
-            for key, n in total_c.items()
-            if n > 0
+            (row.key, round((row.passed or 0) / row.total * 100, 1), int(row.total))
+            for row in rows
+            if row.total
         ]
         items.sort(key=lambda x: x[1])  # worst first
         series = [
@@ -550,7 +573,7 @@ async def fetch_widget_metric(
             .join(Call, Call.id == AnalysisResult.call_id)
         )
         q = apply_call_filters(q, filters)
-        q = q.group_by(topic_expr).order_by(func.count().desc())
+        q = q.group_by(topic_expr).order_by(func.count().desc()).limit(20)
         result = await db.execute(q)
         series = [MetricSeriesPoint(label=row.topic, value=float(row.cnt)) for row in result.all()]
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series)
@@ -567,7 +590,7 @@ async def fetch_widget_metric(
             .join(Call, Call.id == AnalysisResult.call_id)
         )
         q = apply_call_filters(q, filters)
-        q = q.group_by(topic_expr).order_by(func.avg(AnalysisResult.total_score).asc())
+        q = q.group_by(topic_expr).order_by(func.avg(AnalysisResult.total_score).asc()).limit(20)
         result = await db.execute(q)
         series = [
             MetricSeriesPoint(
@@ -580,25 +603,21 @@ async def fetch_widget_metric(
         return WidgetMetricResponse(metric=metric, kind="series", label=label, series=series, unit="%")
 
     if metric == "criteria_operator_heatmap":
-        rows = await _fetch_analysis_rows(db, filters)
+        rows = await _criteria_operator_rows(db, filters)
         name_map = await _criterion_name_map(db, filters.scenario_id)
-        # (criterion_key, operator_name) -> [passed, total]
         cell: dict[tuple[str, str], list[int]] = {}
         crit_total: dict[str, int] = {}
         op_total: dict[str, int] = {}
-        for criteria_results, _score, _op_id, op_name in rows:
-            operator = op_name or "Без оператора"
-            if not isinstance(criteria_results, dict):
+        for row in rows:
+            operator = row.operator_name or "Без оператора"
+            key = row.key
+            total_n = int(row.total or 0)
+            passed_n = int(row.passed or 0)
+            if not key or total_n <= 0:
                 continue
-            for key, res in criteria_results.items():
-                if not isinstance(res, dict) or res.get("status") == "not_applicable":
-                    continue
-                c = cell.setdefault((key, operator), [0, 0])
-                c[1] += 1
-                if res.get("passed"):
-                    c[0] += 1
-                crit_total[key] = crit_total.get(key, 0) + 1
-                op_total[operator] = op_total.get(operator, 0) + 1
+            cell[(key, operator)] = [passed_n, total_n]
+            crit_total[key] = crit_total.get(key, 0) + total_n
+            op_total[operator] = op_total.get(operator, 0) + total_n
         # worst criteria first, busiest operators first
         crit_keys = sorted(crit_total, key=lambda k: crit_total[k], reverse=True)[:12]
         crit_keys.sort(

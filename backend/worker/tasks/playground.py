@@ -7,11 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.models import AnalysisResult, Call, Criterion, PlaygroundFile, PlaygroundJob, PlaygroundResult, Scenario, Transcription
-from app.services.call_utils import duration_seconds_from_transcription
+from app.services.call_utils import duration_seconds_from_transcription, format_transcript_for_llm
 from app.services.redis_events import publish_playground_event
 from worker.celery_app import celery_app
 from worker.db import get_sync_session
-from worker.llm_context import get_llm_kwargs
+from worker.llm_context import get_llm_kwargs, snapshot_criteria, snapshot_scenario
 from worker.tasks.pipeline import _transcribe_audio
 
 logger = logging.getLogger(__name__)
@@ -117,36 +117,57 @@ def process_playground_file(self, file_id: int) -> None:
         _emit(job_id, file_id, "analyzing")
 
         analysis_data = None
+        scenario_id = None
+        custom_prompt = None
+        use_scenario_prompt = True
         with get_sync_session() as db:
             pf, job = _load_playground_file(db, file_id)
             if not pf or not job:
                 return
-            scenario = db.get(Scenario, job.scenario_id) if job.scenario_id else None
+            scenario_id = job.scenario_id
+            custom_prompt = job.custom_prompt
+            use_scenario_prompt = job.use_scenario_prompt
+            scenario = db.get(Scenario, scenario_id) if scenario_id else None
             if not scenario:
                 scenario = db.execute(
                     select(Scenario).where(Scenario.is_active.is_(True)).limit(1)
                 ).scalar_one_or_none()
 
-            if scenario and result.get("full_text"):
-                criteria = list(
-                    db.execute(
-                        select(Criterion).where(Criterion.scenario_id == scenario.id).order_by(Criterion.sort_order)
-                    ).scalars()
-                )
-                kwargs = get_llm_kwargs(db)
-                custom = job.custom_prompt if not job.use_scenario_prompt else None
-                output = asyncio.run(
-                    analyze_transcript(
-                        scenario,
-                        criteria,
-                        result["full_text"],
-                        custom_system_prompt=custom,
-                        model=gss(db, "llm_model", scenario.llm_model),
-                        **kwargs,
+            prepared_kwargs = None
+            prepared_model = None
+            criteria: list = []
+            scenario_snap = None
+            if scenario and (result.get("utterances") or result.get("full_text")):
+                criteria = snapshot_criteria(
+                    list(
+                        db.execute(
+                            select(Criterion).where(Criterion.scenario_id == scenario.id).order_by(Criterion.sort_order)
+                        ).scalars()
                     )
                 )
-                analysis_data = output.model_dump(mode="json")
+                prepared_kwargs = get_llm_kwargs(db)
+                prepared_model = gss(db, "llm_model", scenario.llm_model)
+                scenario_snap = snapshot_scenario(scenario)
 
+        if prepared_kwargs is not None and scenario_snap is not None:
+            transcript = format_transcript_for_llm(result.get("full_text"), result.get("utterances"))
+            custom = custom_prompt if not use_scenario_prompt else None
+            output = asyncio.run(
+                analyze_transcript(
+                    scenario_snap,
+                    criteria,
+                    transcript,
+                    custom_system_prompt=custom,
+                    model=prepared_model,
+                    **prepared_kwargs,
+                )
+            )
+            analysis_data = output.model_dump(mode="json")
+
+        with get_sync_session() as db:
+            pf, job = _load_playground_file(db, file_id)
+            if not pf or not job:
+                return
             existing = db.execute(
                 select(PlaygroundResult).where(PlaygroundResult.file_id == pf.id)
             ).scalar_one_or_none()

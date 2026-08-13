@@ -13,7 +13,8 @@ flowchart LR
   subgraph app [Приложение]
     FE[frontend React]
     API[api FastAPI]
-    Worker[celery-worker]
+    Worker[celery-worker llm/io]
+    SttW[celery-worker-stt]
     Beat[celery-beat]
   end
   subgraph data [Данные]
@@ -34,9 +35,12 @@ flowchart LR
   Worker --> PG
   Worker --> Redis
   Worker --> MinIO
-  Worker --> STT
   Worker --> LLM
+  SttW --> PG
+  SttW --> Redis
+  SttW --> STT
   Beat --> Worker
+  Beat --> SttW
   STT --> MinIO
 ```
 
@@ -85,6 +89,8 @@ CCSA/
 | `pipeline.backfill_topics` | Классификация тем у звонков без темы (по кнопке) |
 | `playground.process_playground_file` | ASR + LLM для файла плейграунда |
 | `research.run_research_study` | LLM метаанализ по выборке звонков |
+
+Очереди Celery: `stt` (ASR, concurrency=1), `llm` (анализ), `io` (sync/export/batch). Воркеры: `celery-worker` (`llm,io`) и `celery-worker-stt` (`stt`).
 
 Ограничение параллельных запросов к STT: `worker/asr_limit.py` (Redis, токены с TTL).
 

@@ -49,7 +49,8 @@ make init
 | redis | — | Celery, семафор ASR, SSE плейграунда |
 | minio | — | Хранение аудио |
 | stt-service | 8001 | Распознавание речи |
-| celery-worker | — | Фоновые задачи |
+| celery-worker | — | LLM и I/O |
+| celery-worker-stt | — | Распознавание (очередь `stt`) |
 | celery-beat | — | Расписание (Webitel, очередь звонков) |
 
 ## Модель ASR
@@ -71,14 +72,14 @@ curl -s http://localhost:8001/health | python3 -m json.tool
 ## Перезапуск после обновления кода
 
 ```bash
-docker compose restart api celery-worker celery-beat stt-service
+docker compose restart api celery-worker celery-worker-stt celery-beat stt-service
 docker compose restart nginx frontend   # при изменении UI
 ```
 
-После смены `CELERY_WORKER_CONCURRENCY` в `.env`:
+После смены `CELERY_LLM_CONCURRENCY` в `.env`:
 
 ```bash
-docker compose restart celery-worker
+docker compose restart celery-worker celery-worker-stt
 ```
 
 ## Бэкап БД

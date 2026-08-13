@@ -2,9 +2,9 @@ import asyncio
 import json
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
@@ -28,12 +28,14 @@ from app.schemas.calls import (
     CallExportJobOut,
     CallExportSyncBody,
     CallListItem,
+    CallStatusOut,
     CallTagsUpdate,
     NoteCreate,
     NoteOut,
 )
 from app.schemas.tags import TagOut
 from app.schemas.common import MessageOut, Paginated
+from app.services.audio_stream import stream_audio
 from app.services.call_query import build_calls_count_query, build_calls_list_query
 from app.services.call_utils import duration_seconds_from_utterances
 from app.services.calls_export import (
@@ -123,11 +125,19 @@ async def list_calls(
     missing_duration_ids = [c.id for c in calls if c.duration is None]
     duration_from_trans: dict[int, int] = {}
     if missing_duration_ids:
-        tr_rows = await db.execute(
-            select(Transcription.call_id, Transcription.utterances).where(
-                Transcription.call_id.in_(missing_duration_ids)
-            )
-        )
+        latest = (
+            select(
+                Transcription.call_id,
+                Transcription.utterances,
+                func.row_number()
+                .over(
+                    partition_by=Transcription.call_id,
+                    order_by=(Transcription.created_at.desc(), Transcription.id.desc()),
+                )
+                .label("rn"),
+            ).where(Transcription.call_id.in_(missing_duration_ids))
+        ).subquery()
+        tr_rows = await db.execute(select(latest.c.call_id, latest.c.utterances).where(latest.c.rn == 1))
         for call_id, utterances in tr_rows.all():
             dur = duration_seconds_from_utterances(utterances)
             if dur is not None:
@@ -312,6 +322,16 @@ async def download_call_export_job(
     )
 
 
+@router.get("/{call_id}/status", response_model=CallStatusOut)
+async def get_call_status(
+    call_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)
+):
+    call = await db.get(Call, call_id)
+    if not call:
+        raise HTTPException(status_code=404, detail="Call not found")
+    return CallStatusOut(id=call.id, status=call.status, error_message=call.error_message)
+
+
 @router.get("/{call_id}", response_model=CallDetailOut)
 async def get_call(call_id: int, db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
     result = await db.execute(
@@ -320,8 +340,6 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db), _: User = D
         .options(
             selectinload(Call.operator),
             selectinload(Call.scenario),
-            selectinload(Call.transcriptions),
-            selectinload(Call.analysis_results),
             selectinload(Call.tags).selectinload(CallTag.tag),
             selectinload(Call.notes).selectinload(SupervisorNote.user),
         )
@@ -330,15 +348,31 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db), _: User = D
     if not call:
         raise HTTPException(status_code=404, detail="Call not found")
 
+    latest_trans = (
+        await db.execute(
+            select(Transcription)
+            .where(Transcription.call_id == call_id)
+            .order_by(Transcription.created_at.desc(), Transcription.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    latest_analysis = (
+        await db.execute(
+            select(AnalysisResult)
+            .where(AnalysisResult.call_id == call_id)
+            .order_by(AnalysisResult.created_at.desc(), AnalysisResult.id.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+
     audio_url = f"/api/v1/calls/{call.id}/audio" if call.audio_path else None
 
     notes = [
         NoteOut(id=n.id, text=n.text, user_name=n.user.full_name, created_at=n.created_at) for n in call.notes
     ]
-    latest_trans = sorted(call.transcriptions, key=lambda t: t.id, reverse=True)[:1]
     duration = call.duration
     if duration is None and latest_trans:
-        duration = duration_seconds_from_utterances(latest_trans[0].utterances)
+        duration = duration_seconds_from_utterances(latest_trans.utterances)
     return CallDetailOut(
         id=call.id,
         call_uuid=call.call_uuid,
@@ -354,8 +388,8 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db), _: User = D
         error_message=call.error_message,
         audio_url=audio_url,
         tags=[TagOut(id=ct.tag.id, name=ct.tag.name) for ct in call.tags],
-        transcriptions=latest_trans,
-        analysis_results=call.analysis_results,
+        transcriptions=[latest_trans] if latest_trans else [],
+        analysis_results=[latest_analysis] if latest_analysis else [],
         notes=notes,
     )
 
@@ -363,6 +397,7 @@ async def get_call(call_id: int, db: AsyncSession = Depends(get_db), _: User = D
 @router.get("/{call_id}/audio")
 async def stream_call_audio(
     call_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
@@ -370,12 +405,7 @@ async def stream_call_audio(
     call = result.scalar_one_or_none()
     if not call or not call.audio_path:
         raise HTTPException(status_code=404, detail="Audio not found")
-    data = storage_service.download_bytes(call.audio_path)
-    return Response(
-        content=data,
-        media_type=storage_service.media_type_for_key(call.audio_path),
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
+    return stream_audio(request, call.audio_path)
 
 
 @router.post("/{call_id}/reanalyze", response_model=MessageOut)

@@ -1,19 +1,21 @@
+import { lazy } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api/client";
 import SidebarLayout from "./layouts/SidebarLayout";
 import LoginPage from "./pages/LoginPage";
-import DashboardPage from "./pages/DashboardPage";
-import CallsPage from "./pages/CallsPage";
-import CallDetailPage from "./pages/CallDetailPage";
-import OperatorsPage from "./pages/OperatorsPage";
-import ScenariosPage from "./pages/ScenariosPage";
-import ScenarioEditPage from "./pages/ScenarioEditPage";
-import ResearchListPage from "./pages/ResearchListPage";
-import ResearchNewPage from "./pages/ResearchNewPage";
-import ResearchDetailPage from "./pages/ResearchDetailPage";
-import PlaygroundPage from "./pages/PlaygroundPage";
-import SettingsPage from "./pages/SettingsPage";
+
+const DashboardPage = lazy(() => import("./pages/DashboardPage"));
+const CallsPage = lazy(() => import("./pages/CallsPage"));
+const CallDetailPage = lazy(() => import("./pages/CallDetailPage"));
+const OperatorsPage = lazy(() => import("./pages/OperatorsPage"));
+const ScenariosPage = lazy(() => import("./pages/ScenariosPage"));
+const ScenarioEditPage = lazy(() => import("./pages/ScenarioEditPage"));
+const ResearchListPage = lazy(() => import("./pages/ResearchListPage"));
+const ResearchNewPage = lazy(() => import("./pages/ResearchNewPage"));
+const ResearchDetailPage = lazy(() => import("./pages/ResearchDetailPage"));
+const PlaygroundPage = lazy(() => import("./pages/PlaygroundPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isLoading, isError } = useQuery({

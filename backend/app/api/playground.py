@@ -1,8 +1,7 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -13,6 +12,7 @@ from app.database import get_db
 from app.models import PlaygroundFile, PlaygroundJob, User
 from app.schemas.common import MessageOut
 from app.schemas.playground import PlaygroundFileOut, PlaygroundJobCreate, PlaygroundJobOut
+from app.services.audio_stream import stream_audio
 from app.services.redis_events import subscribe_playground_events
 from app.services.storage import storage_service
 
@@ -168,6 +168,7 @@ async def job_events(job_id: int, user: User = Depends(get_current_user)):
 @router.get("/files/{file_id}/audio")
 async def stream_playground_audio(
     file_id: int,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -179,12 +180,7 @@ async def stream_playground_audio(
     pf = result.scalar_one_or_none()
     if not pf or pf.job.user_id != user.id or not pf.storage_key:
         raise HTTPException(status_code=404, detail="Audio not found")
-    data = storage_service.download_bytes(pf.storage_key)
-    return Response(
-        content=data,
-        media_type=storage_service.media_type_for_key(pf.storage_key),
-        headers={"Cache-Control": "private, max-age=3600"},
-    )
+    return stream_audio(request, pf.storage_key)
 
 
 @router.post("/files/{file_id}/promote-to-calls", response_model=MessageOut)

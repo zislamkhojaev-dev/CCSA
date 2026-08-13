@@ -72,7 +72,7 @@ export default function PlaygroundPage() {
     queryKey: ["playground", jobId],
     queryFn: () => api.get<Job>(`/playground/jobs/${jobId}`),
     enabled: !!jobId,
-    refetchInterval: (q) => (isProcessing(q.state.data) ? 2000 : false),
+    refetchInterval: (q) => (isProcessing(q.state.data) ? 15000 : false),
   });
 
   useEffect(() => {

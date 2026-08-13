@@ -34,25 +34,37 @@ async def list_operators(
         select(Operator).order_by(Operator.full_name).offset((page - 1) * page_size).limit(page_size)
     )
     ops = result.scalars().all()
-    items = []
-    for op in ops:
-        calls_count = await db.scalar(select(func.count()).select_from(Call).where(Call.operator_id == op.id)) or 0
-        avg = await db.scalar(
-            select(func.avg(AnalysisResult.total_score))
-            .join(Call, Call.id == AnalysisResult.call_id)
-            .where(Call.operator_id == op.id)
+    op_ids = [op.id for op in ops]
+    calls_by_op: dict[int, int] = {}
+    avg_by_op: dict[int, float] = {}
+    if op_ids:
+        count_rows = await db.execute(
+            select(Call.operator_id, func.count())
+            .where(Call.operator_id.in_(op_ids))
+            .group_by(Call.operator_id)
         )
-        items.append(
-            OperatorOut(
-                id=op.id,
-                webitel_id=op.webitel_id,
-                full_name=op.full_name,
-                team_name=op.team_name,
-                is_active=op.is_active,
-                calls_count=calls_count,
-                avg_score=round(float(avg), 1) if avg else None,
-            )
+        calls_by_op = {op_id: int(cnt) for op_id, cnt in count_rows.all() if op_id is not None}
+        avg_rows = await db.execute(
+            select(Call.operator_id, func.avg(AnalysisResult.total_score))
+            .join(AnalysisResult, AnalysisResult.call_id == Call.id)
+            .where(Call.operator_id.in_(op_ids))
+            .group_by(Call.operator_id)
         )
+        avg_by_op = {
+            op_id: float(avg) for op_id, avg in avg_rows.all() if op_id is not None and avg is not None
+        }
+    items = [
+        OperatorOut(
+            id=op.id,
+            webitel_id=op.webitel_id,
+            full_name=op.full_name,
+            team_name=op.team_name,
+            is_active=op.is_active,
+            calls_count=calls_by_op.get(op.id, 0),
+            avg_score=round(avg_by_op[op.id], 1) if op.id in avg_by_op else None,
+        )
+        for op in ops
+    ]
     return Paginated(items=items, total=total, page=page, page_size=page_size)
 
 

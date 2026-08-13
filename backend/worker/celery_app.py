@@ -17,6 +17,21 @@ celery_app.conf.update(
     task_acks_late=True,
     worker_prefetch_multiplier=1,
     broker_connection_retry_on_startup=True,
+    task_default_queue="io",
+    task_routes={
+        "worker.tasks.pipeline.transcribe_call": {"queue": "stt"},
+        "worker.tasks.pipeline.retranscribe_call": {"queue": "stt"},
+        "worker.tasks.playground.process_playground_file": {"queue": "stt"},
+        "worker.tasks.pipeline.analyze_call": {"queue": "llm"},
+        "worker.tasks.pipeline.reanalyze_call": {"queue": "llm"},
+        "worker.tasks.pipeline.backfill_topics": {"queue": "llm"},
+        "worker.tasks.research.run_research_study": {"queue": "llm"},
+        "worker.tasks.pipeline.process_pending_batch": {"queue": "io"},
+        "worker.tasks.pipeline.recover_stuck_calls": {"queue": "io"},
+        "worker.tasks.webitel.sync_webitel_calls": {"queue": "io"},
+        "worker.tasks.webitel.sync_operators_from_webitel": {"queue": "io"},
+        "worker.tasks.calls_export.run_calls_export": {"queue": "io"},
+    },
 )
 
 celery_app.autodiscover_tasks(["worker.tasks"])

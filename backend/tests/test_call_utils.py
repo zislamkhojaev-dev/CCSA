@@ -43,3 +43,23 @@ def test_effective_duration_from_utterances():
 def test_effective_duration_from_transcription_when_column_missing():
     trans = {"channels": {"mixed": {"duration_sec": 55.0}}}
     assert effective_duration_seconds(None, None, transcription=trans) == 55
+
+
+def test_format_transcript_for_llm_uses_speakers_and_timestamps():
+    from app.services.call_utils import format_transcript_for_llm
+
+    text = format_transcript_for_llm(
+        "ignored",
+        [
+            {"speaker": "client", "start": 5, "text": "Salom"},
+            {"speaker": "agent", "start": 72.4, "text": "Assalomu alaykum"},
+        ],
+    )
+    assert text == "[client 00:05] Salom\n[agent 01:12] Assalomu alaykum"
+
+
+def test_format_transcript_for_llm_falls_back_to_full_text():
+    from app.services.call_utils import format_transcript_for_llm
+
+    assert format_transcript_for_llm("plain text", []) == "plain text"
+    assert format_transcript_for_llm("  hi  ", None) == "hi"

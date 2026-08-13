@@ -38,7 +38,7 @@ export default function ResearchDetailPage() {
     enabled: !!id,
     refetchInterval: (query) => {
       const status = query.state.data?.status;
-      if (status === "pending" || status === "running") return 10000;
+      if (status === "pending" || status === "running") return 30000;
       return false;
     },
   });

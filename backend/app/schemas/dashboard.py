@@ -36,6 +36,20 @@ class WidgetMetricResponse(BaseModel):
     matrix: dict | None = None
 
 
+class WidgetMetricsBatchIn(BaseModel):
+    metrics: list[str] = Field(min_length=1, max_length=40)
+    period_days: int = Field(default=30, ge=1, le=365)
+    date_from: str | None = None
+    date_to: str | None = None
+    direction: str | None = None
+    operator_ids: list[int] | None = None
+    scenario_id: int | None = None
+
+
+class WidgetMetricsBatchOut(BaseModel):
+    items: dict[str, WidgetMetricResponse]
+
+
 class DashboardWidgetConfig(BaseModel):
     id: str
     type: str

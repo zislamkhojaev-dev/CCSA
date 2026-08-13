@@ -31,6 +31,87 @@ def _parse_item(item: dict) -> tuple[str, str | None, dict]:
     return call_uuid, file_id, item
 
 
+def _resolve_operator(db, webitel_agent_id: str, operator_name: str, cache: dict[str, int]) -> int:
+    if webitel_agent_id and webitel_agent_id in cache:
+        return cache[webitel_agent_id]
+    operator = None
+    if webitel_agent_id:
+        operator = db.execute(
+            select(Operator).where(Operator.webitel_id == webitel_agent_id)
+        ).scalar_one_or_none()
+    if not operator:
+        operator = Operator(webitel_id=webitel_agent_id or None, full_name=operator_name, is_active=True)
+        db.add(operator)
+        db.flush()
+    if webitel_agent_id:
+        cache[webitel_agent_id] = operator.id
+    return operator.id
+
+
+def _import_one_call(client: WebitelClient, item: dict, operator_cache: dict[str, int]) -> str:
+    call_uuid_str, file_id, raw = _parse_item(item)
+    try:
+        call_uuid = uuid.UUID(call_uuid_str)
+    except ValueError:
+        call_uuid = uuid.uuid4()
+
+    with get_sync_session() as db:
+        if db.execute(select(Call.id).where(Call.call_uuid == call_uuid)).scalar_one_or_none():
+            return "skipped"
+
+        webitel_agent_id = str(raw.get("agent_id") or raw.get("user_id") or "")
+        operator_name = raw.get("agent_name") or raw.get("user_name") or "Unknown"
+        operator_id = _resolve_operator(db, webitel_agent_id, operator_name, operator_cache)
+
+        ts = raw.get("created_at") or raw.get("timestamp")
+        call_ts = datetime.utcnow()
+        if isinstance(ts, (int, float)):
+            call_ts = datetime.utcfromtimestamp(ts / 1000 if ts > 1e12 else ts)
+
+        call = Call(
+            call_uuid=call_uuid,
+            operator_id=operator_id,
+            direction=raw.get("direction"),
+            duration=raw.get("duration") or raw.get("bill_sec"),
+            client_number=str(raw.get("destination") or raw.get("from") or raw.get("caller") or ""),
+            call_timestamp=call_ts,
+            status="downloading",
+            source="webitel",
+        )
+        db.add(call)
+        db.flush()
+        call_id = call.id
+
+    if not file_id:
+        with get_sync_session() as db:
+            call = db.get(Call, call_id)
+            if call:
+                call.status = "error"
+                call.error_message = "No recording file"
+        return "error"
+
+    try:
+        audio = asyncio.run(client.download_recording(file_id))
+        key = storage_service.upload_bytes(audio, "calls", f"{call_uuid}.wav")
+    except Exception as e:
+        with get_sync_session() as db:
+            call = db.get(Call, call_id)
+            if call:
+                call.status = "error"
+                call.error_message = f"Download failed: {e}"
+        return "error"
+
+    with get_sync_session() as db:
+        call = db.get(Call, call_id)
+        if not call:
+            return "error"
+        call.audio_path = key
+        call.status = "pending"
+        call.error_message = None
+    transcribe_call.delay(call_id)
+    return "imported"
+
+
 @celery_app.task(name="worker.tasks.webitel.sync_webitel_calls", base=WebitelTask, bind=True)
 def sync_webitel_calls(self) -> None:
     with get_sync_session() as db:
@@ -49,6 +130,7 @@ def sync_webitel_calls(self) -> None:
         run = SyncRun(source="webitel_api", status="running")
         db.add(run)
         db.flush()
+        run_id = run.id
 
         api_url = get_setting_sync(db, "webitel_api_url")
         token = get_setting_sync(db, "webitel_access_token")
@@ -59,6 +141,8 @@ def sync_webitel_calls(self) -> None:
             return
 
         client = WebitelClient(api_url, token)
+        fetch_error: Exception | None = None
+        items: list = []
         try:
             items = asyncio.run(
                 client.fetch_call_history(
@@ -71,69 +155,37 @@ def sync_webitel_calls(self) -> None:
             run.error_message = str(e)
             run.finished_at = datetime.utcnow()
             logger.exception("Webitel sync failed")
-            raise
+            fetch_error = e
 
-        imported = skipped = 0
-        for item in items:
-            call_uuid_str, file_id, raw = _parse_item(item)
-            try:
-                call_uuid = uuid.UUID(call_uuid_str)
-            except ValueError:
-                call_uuid = uuid.uuid4()
+    if fetch_error:
+        raise fetch_error
 
-            if db.execute(select(Call).where(Call.call_uuid == call_uuid)).scalar_one_or_none():
+    imported = skipped = errors = 0
+    operator_cache: dict[str, int] = {}
+    for item in items:
+        try:
+            result = _import_one_call(client, item, operator_cache)
+            if result == "skipped":
                 skipped += 1
-                continue
-
-            webitel_agent_id = str(raw.get("agent_id") or raw.get("user_id") or "")
-            operator_name = raw.get("agent_name") or raw.get("user_name") or "Unknown"
-            operator = None
-            if webitel_agent_id:
-                operator = db.execute(
-                    select(Operator).where(Operator.webitel_id == webitel_agent_id)
-                ).scalar_one_or_none()
-            if not operator:
-                operator = Operator(webitel_id=webitel_agent_id or None, full_name=operator_name, is_active=True)
-                db.add(operator)
-                db.flush()
-
-            ts = raw.get("created_at") or raw.get("timestamp")
-            call_ts = datetime.utcnow()
-            if isinstance(ts, (int, float)):
-                call_ts = datetime.utcfromtimestamp(ts / 1000 if ts > 1e12 else ts)
-
-            call = Call(
-                call_uuid=call_uuid,
-                operator_id=operator.id,
-                direction=raw.get("direction"),
-                duration=raw.get("duration") or raw.get("bill_sec"),
-                client_number=str(raw.get("destination") or raw.get("from") or raw.get("caller") or ""),
-                call_timestamp=call_ts,
-                status="downloading",
-                source="webitel",
-            )
-            db.add(call)
-            db.flush()
-
-            if file_id:
-                try:
-                    audio = asyncio.run(client.download_recording(file_id))
-                    key = storage_service.upload_bytes(audio, "calls", f"{call_uuid}.wav")
-                    call.audio_path = key
-                    call.status = "pending"
-                    db.flush()
-                    transcribe_call.delay(call.id)
-                    imported += 1
-                except Exception as e:
-                    call.status = "error"
-                    call.error_message = f"Download failed: {e}"
+            elif result == "imported":
+                imported += 1
             else:
-                call.status = "error"
-                call.error_message = "No recording file"
+                errors += 1
+        except Exception:
+            errors += 1
+            logger.exception("Webitel import failed for item")
 
-        run.status = "completed"
-        run.finished_at = datetime.utcnow()
-        run.stats_json = {"imported": imported, "skipped": skipped, "total_items": len(items)}
+    with get_sync_session() as db:
+        run = db.get(SyncRun, run_id)
+        if run:
+            run.status = "completed"
+            run.finished_at = datetime.utcnow()
+            run.stats_json = {
+                "imported": imported,
+                "skipped": skipped,
+                "errors": errors,
+                "total_items": len(items),
+            }
 
 
 @celery_app.task(name="worker.tasks.webitel.sync_operators_from_webitel", base=WebitelTask)

@@ -8,7 +8,7 @@ from celery import Task
 from app.models import AnalysisResult, Call, CallStatus, Transcription
 from worker.celery_app import celery_app
 from worker.db import get_sync_session
-from worker.llm_context import run_llm_analysis
+from worker.llm_context import prepare_llm_analysis, run_prepared_analysis
 from worker.task_lock import call_task_lock, is_locked
 from app.services.call_utils import duration_seconds_from_transcription
 
@@ -127,9 +127,6 @@ def transcribe_call(self, call_id: int) -> None:
 def analyze_call(self, call_id: int, scenario_id: int | None = None) -> None:
     from sqlalchemy import delete
 
-    from worker.llm_context import resolve_scenario
-    from worker.settings_sync import get_setting_sync
-
     with call_task_lock("analyze", call_id, ttl=ANALYSIS_LOCK_TTL) as acquired:
         if not acquired:
             logger.info("Skip analyze_call %s — another worker is running it", call_id)
@@ -143,17 +140,17 @@ def analyze_call(self, call_id: int, scenario_id: int | None = None) -> None:
             call.error_message = None
 
         try:
-            # The LLM call can take minutes: keep it out of the transaction that
-            # writes the result, so no row lock is held while waiting.
+            # Load ORM data, close the session, then call the LLM (can take minutes).
             with get_sync_session() as db:
                 call = db.get(Call, call_id)
                 if not call:
                     return
-                output = run_llm_analysis(db, call, scenario_id, strict=True)
-                scenario = resolve_scenario(db, call, scenario_id)
-                resolved_scenario_id = scenario.id if scenario else None
-                llm_model = get_setting_sync(db, "llm_model", "gpt-4o-mini")
-                criteria_json = {k: v.model_dump() for k, v in output.criteria_results.items()}
+                prepared = prepare_llm_analysis(db, call, scenario_id)
+                resolved_scenario_id = prepared.scenario_id
+                llm_model = prepared.llm_model
+
+            output = run_prepared_analysis(prepared, strict=True)
+            criteria_json = {k: v.model_dump() for k, v in output.criteria_results.items()}
 
             with get_sync_session() as db:
                 call = db.get(Call, call_id)
@@ -219,6 +216,7 @@ def backfill_topics(limit: int = 200) -> dict:
     from sqlalchemy import or_, select
 
     from app.models import Transcription
+    from app.services.call_utils import format_transcript_for_llm
     from app.services.llm import classify_topic
     from app.services.quality_settings import DEFAULT_TAXONOMY, parse_topics, UNCLASSIFIED_TOPIC
     from worker.llm_context import get_llm_kwargs
@@ -262,12 +260,21 @@ def backfill_topics(limit: int = 200) -> dict:
                     .order_by(Transcription.created_at.desc())
                     .limit(1)
                 ).scalar_one_or_none()
-                if not trans or not trans.full_text:
+                transcript = format_transcript_for_llm(
+                    trans.full_text if trans else None,
+                    trans.utterances if trans else None,
+                )
+                if not transcript:
                     skipped += 1
                     continue
-                topic = asyncio.run(
-                    classify_topic(trans.full_text, topics, model=llm_model, **kwargs)
-                )
+            topic = asyncio.run(
+                classify_topic(transcript, topics, model=llm_model, **kwargs)
+            )
+            with get_sync_session() as db:
+                res = db.get(AnalysisResult, result_id)
+                if not res:
+                    skipped += 1
+                    continue
                 res.topic = topic or UNCLASSIFIED_TOPIC
                 processed += 1
         except Exception:
@@ -297,6 +304,8 @@ def recover_stuck_calls(stale_minutes: int | None = None) -> dict:
     requeued = 0
     failed = 0
     running = 0
+    to_transcribe: list[int] = []
+    to_analyze: list[int] = []
 
     with get_sync_session() as db:
         stuck = db.execute(
@@ -326,15 +335,22 @@ def recover_stuck_calls(stale_minutes: int | None = None) -> dict:
             if status == CallStatus.analyzing.value and has_transcript:
                 call.status = CallStatus.transcribed.value
                 call.error_message = None
+                to_analyze.append(call_id)
                 requeued += 1
             elif call.audio_path:
                 call.status = CallStatus.pending.value
                 call.error_message = None
+                to_transcribe.append(call_id)
                 requeued += 1
             else:
                 call.status = CallStatus.error.value
                 call.error_message = "Обработка прервана, а исходный файл недоступен"
                 failed += 1
+
+    for cid in to_transcribe:
+        transcribe_call.delay(cid)
+    for cid in to_analyze:
+        analyze_call.delay(cid)
 
     logger.info(
         "recover_stuck_calls done: requeued=%s failed=%s still_running=%s (stale>%sm)",

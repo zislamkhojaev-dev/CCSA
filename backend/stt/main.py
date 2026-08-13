@@ -151,8 +151,10 @@ def _audio_duration_sec(path: str) -> float:
 def _write_mono_wav(audio_bytes: bytes, path: str) -> None:
     from pydub import AudioSegment
 
+    from stt.audio_prep import prepare_segment
+
     seg = AudioSegment.from_file(BytesIO(audio_bytes))
-    mono = seg.set_channels(1) if seg.channels > 1 else seg
+    mono = prepare_segment(seg, mono=True)
     mono.export(path, format="wav")
 
 
@@ -300,6 +302,9 @@ def _ct2_transcribe_kwargs(*, isolated_channel: bool = False) -> dict[str, Any]:
     }
     if lang:
         kwargs["language"] = lang
+    prompt = os.getenv("STT_INITIAL_PROMPT", "").strip()
+    if prompt:
+        kwargs["initial_prompt"] = prompt
     return kwargs
 
 

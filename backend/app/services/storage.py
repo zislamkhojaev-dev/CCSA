@@ -47,6 +47,17 @@ class StorageService:
             response.close()
             response.release_conn()
 
+    def stat_size(self, key: str) -> int:
+        return int(self.client.stat_object(self.bucket, key).size)
+
+    def open_object(self, key: str, offset: int = 0, length: int | None = None):
+        kwargs: dict = {}
+        if offset:
+            kwargs["offset"] = offset
+        if length is not None:
+            kwargs["length"] = length
+        return self.client.get_object(self.bucket, key, **kwargs)
+
     def get_presigned_url(self, key: str, expires_hours: int = 4) -> str:
         return self.client.presigned_get_object(
             self.bucket, key, expires=timedelta(hours=expires_hours)

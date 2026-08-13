@@ -65,6 +65,14 @@ class CallDetailOut(BaseModel):
     notes: list["NoteOut"]
 
 
+class CallStatusOut(BaseModel):
+    id: int
+    status: str
+    error_message: str | None = None
+
+    model_config = {"from_attributes": True}
+
+
 class CallBulkDelete(BaseModel):
     ids: list[int] = Field(min_length=1)
 

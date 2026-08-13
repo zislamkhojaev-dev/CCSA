@@ -16,6 +16,8 @@ from app.schemas.dashboard import (
     DashboardWidgetConfig,
     ScoreBucket,
     WidgetMetricResponse,
+    WidgetMetricsBatchIn,
+    WidgetMetricsBatchOut,
 )
 from app.services.dashboard_export import (
     build_dashboard_export,
@@ -144,6 +146,30 @@ async def widget_metric(
     )
     quality = await load_quality_config(db)
     return await fetch_widget_metric(db, metric, filters, quality)
+
+
+@router.post("/metrics/batch", response_model=WidgetMetricsBatchOut)
+async def widget_metrics_batch(
+    body: WidgetMetricsBatchIn,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    unknown = [m for m in body.metrics if m not in AVAILABLE_METRICS]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown metric: {unknown[0]}")
+    filters = parse_dashboard_filters(
+        period_days=body.period_days,
+        date_from=body.date_from,
+        date_to=body.date_to,
+        direction=body.direction,
+        operator_ids=body.operator_ids,
+        scenario_id=body.scenario_id,
+    )
+    quality = await load_quality_config(db)
+    items: dict[str, WidgetMetricResponse] = {}
+    for metric in dict.fromkeys(body.metrics):
+        items[metric] = await fetch_widget_metric(db, metric, filters, quality)
+    return WidgetMetricsBatchOut(items=items)
 
 
 @router.get("/export")

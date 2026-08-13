@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronDown, ChevronUp } from "lucide-react";
 import { api } from "../api/client";
 import SearchableSelect from "../components/SearchableSelect";
@@ -158,6 +158,15 @@ function countActiveCallFilters(f: {
   return n;
 }
 
+function useDebouncedValue<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebounced(value), ms);
+    return () => window.clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
 export default function CallsPage() {
   const qc = useQueryClient();
   const [page, setPage] = useState(1);
@@ -179,6 +188,12 @@ export default function CallsPage() {
   const [sortBy, setSortBy] = useState<SortKey>("call_timestamp");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filtersOpen, setFiltersOpen] = useState(readFiltersOpenDefault);
+  const debouncedOperatorValue = useDebouncedValue(operatorValue, 400);
+  const debouncedClientValue = useDebouncedValue(clientValue, 400);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedOperatorValue, debouncedClientValue]);
 
   const activeFilterCount = useMemo(
     () =>
@@ -211,9 +226,9 @@ export default function CallsPage() {
     () => ({
       statusFilter,
       operatorMatch,
-      operatorValue,
+      operatorValue: debouncedOperatorValue,
       clientMatch,
-      clientValue,
+      clientValue: debouncedClientValue,
       dateFrom,
       dateTo,
       durationOp,
@@ -227,9 +242,9 @@ export default function CallsPage() {
     [
       statusFilter,
       operatorMatch,
-      operatorValue,
+      debouncedOperatorValue,
       clientMatch,
-      clientValue,
+      debouncedClientValue,
       dateFrom,
       dateTo,
       durationOp,
@@ -247,6 +262,7 @@ export default function CallsPage() {
   const { data, isLoading, isFetching } = useQuery({
     queryKey,
     queryFn: () => api.get<Paginated>(`/calls?${buildQueryParams(page, pageSize, filterState)}`),
+    placeholderData: keepPreviousData,
   });
 
   const deleteMutation = useMutation({

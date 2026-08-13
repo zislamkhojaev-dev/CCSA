@@ -63,7 +63,8 @@ export default function AudioWaveform({
       height,
       url: audioUrl,
       fetchParams: { credentials: "include" },
-      normalize: true,
+      backend: "MediaElement",
+      normalize: false,
     });
     wsRef.current = ws;
 

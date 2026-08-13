@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, FileDown } from "lucide-react";
@@ -64,10 +64,22 @@ export default function CallDetailPage() {
     queryKey: ["call", id],
     queryFn: () => api.get<CallDetail>(`/calls/${id}`),
     enabled: !!id,
-    refetchInterval: (q) => (isCallProcessing(q.state.data?.status) ? 2000 : false),
   });
 
   const processing = isCallProcessing(data?.status);
+  const { data: liveStatus } = useQuery({
+    queryKey: ["call-status", id],
+    queryFn: () =>
+      api.get<{ id: number; status: string; error_message: string | null }>(`/calls/${id}/status`),
+    enabled: !!id && processing,
+    refetchInterval: 2000,
+  });
+
+  useEffect(() => {
+    if (liveStatus && data && liveStatus.status !== data.status) {
+      qc.invalidateQueries({ queryKey: ["call", id] });
+    }
+  }, [liveStatus, data, id, qc]);
   const statusBanner = data ? callStatusBanner(data.status, data.error_message) : null;
 
   useEffect(() => {
@@ -109,6 +121,16 @@ export default function CallDetailPage() {
     onError: (e: Error) => setActionHint(e.message || "Не удалось запустить ASR"),
   });
 
+  const renderHighlighted = useCallback(
+    (text: string) => <span dangerouslySetInnerHTML={{ __html: highlightText(text) }} />,
+    [],
+  );
+
+  const utterances = useMemo(
+    () => sortUtterances((data?.transcriptions[0]?.utterances as Utterance[]) || []),
+    [data?.transcriptions],
+  );
+
   if (isLoading) return <p className="empty">Загрузка...</p>;
 
   if (isError) {
@@ -123,7 +145,6 @@ export default function CallDetailPage() {
 
   const analysis = data.analysis_results[0];
   const trans = data.transcriptions[0];
-  const utterances = sortUtterances((trans?.utterances as Utterance[]) || []);
   const scoreClass = scoreBadge(analysis?.total_score);
   const busy = processing || reanalyze.isPending || retranscribe.isPending;
   const hasTranscript = utterances.length > 0 || Boolean(trans?.full_text?.trim());
@@ -362,7 +383,7 @@ export default function CallDetailPage() {
               utterances={utterances}
               fullText={trans?.full_text}
               onSeek={(t) => seekRef.current(t)}
-              renderText={(text) => <span dangerouslySetInnerHTML={{ __html: highlightText(text) }} />}
+              renderText={renderHighlighted}
               emptyMessage={
                 processing
                   ? "Транскрипт появится после распознавания…"

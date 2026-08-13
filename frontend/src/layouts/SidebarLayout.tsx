@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -111,7 +111,9 @@ export default function SidebarLayout() {
       </aside>
       <main className="main-content">
         <PlaygroundProvider>
-          <Outlet />
+          <Suspense fallback={<div className="loading-page">Загрузка…</div>}>
+            <Outlet />
+          </Suspense>
         </PlaygroundProvider>
       </main>
     </div>

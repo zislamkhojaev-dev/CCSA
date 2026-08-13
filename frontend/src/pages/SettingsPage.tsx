@@ -188,9 +188,8 @@ function ModelsTab() {
           }}
         />
         <p className="form-hint">
-          Применяется после перезапуска: задайте в .env{" "}
-          <code>CELERY_WORKER_CONCURRENCY=…</code> и выполните{" "}
-          <code>docker compose restart celery-worker</code>.
+          LLM/I/O воркер: <code>CELERY_LLM_CONCURRENCY</code> в .env (по умолчанию 2). STT всегда
+          один процесс — <code>docker compose restart celery-worker celery-worker-stt</code>.
         </p>
       </div>
       {form.asr_provider !== "local" && (

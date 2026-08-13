@@ -72,6 +72,25 @@ export function buildDashboardQueryString(filters: DashboardFiltersState): strin
   return params.toString();
 }
 
+export function buildDashboardBatchBody(metrics: string[], filters: DashboardFiltersState) {
+  const body: {
+    metrics: string[];
+    period_days: number;
+    date_from?: string;
+    date_to?: string;
+    scenario_id?: number;
+  } = {
+    metrics,
+    period_days: filters.periodMode === "custom" ? 30 : Number(filters.periodMode) || 30,
+  };
+  if (filters.periodMode === "custom") {
+    if (filters.dateFrom) body.date_from = filters.dateFrom;
+    if (filters.dateTo) body.date_to = filters.dateTo;
+  }
+  if (filters.scenarioId) body.scenario_id = filters.scenarioId;
+  return body;
+}
+
 const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
 export async function downloadDashboardExport(

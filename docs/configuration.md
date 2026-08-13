@@ -27,7 +27,8 @@
 | `REDIS_URL` | Кэш, семафор ASR, SSE |
 | `CELERY_BROKER_URL` | Очередь задач |
 | `CELERY_RESULT_BACKEND` | Результаты Celery |
-| `CELERY_WORKER_CONCURRENCY` | Параллельных задач Celery (после изменения — `restart celery-worker`) |
+| `CELERY_WORKER_CONCURRENCY` | Устарело: STT-воркер всегда `concurrency=1` |
+| `CELERY_LLM_CONCURRENCY` | Параллельных LLM/I/O задач (по умолчанию 2; `restart celery-worker`) |
 
 ### MinIO
 
@@ -46,6 +47,8 @@
 | `STT_COMPUTE_TYPE` | `int8` | Тип вычислений CT2 |
 | `STT_DIARIZATION_METHOD` | `stereo_channels` | `stereo_channels` / `pyannote` / `mono` |
 | `STT_LANGUAGE` | `uz` | Язык ASR |
+| `STT_INITIAL_PROMPT` | — | Словарь КЦ для Whisper (бренды, типичные фразы) |
+| `STT_CLIENT_CHANNEL` | `left` | Канал клиента в стерео (`left` / `right`) |
 | `HF_TOKEN` | — | Для Pyannote (Hugging Face) |
 
 Полный список STT-переменных — в `backend/stt/main.py` (`STT_BEAM_SIZE`, `STT_VAD_FILTER`, …).

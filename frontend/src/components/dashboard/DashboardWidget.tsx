@@ -39,6 +39,8 @@ type Props = {
   editing?: boolean;
   onEdit?: () => void;
   onRemove?: () => void;
+  metricData?: WidgetMetricData;
+  metricLoading?: boolean;
   dragHandleProps?: {
     attributes: Record<string, unknown>;
     listeners: Record<string, unknown> | undefined;
@@ -384,14 +386,20 @@ export default function DashboardWidgetCard({
   editing,
   onEdit,
   onRemove,
+  metricData,
+  metricLoading,
   dragHandleProps,
 }: Props) {
   const qs = buildDashboardQueryString(filters);
-  const { data, isLoading, isError } = useQuery({
+  const { data: fetched, isLoading: fetchedLoading, isError } = useQuery({
     queryKey: ["dashboard-metric", widget.metric, ...dashboardFiltersKey(filters)],
     queryFn: () =>
       api.get<WidgetMetricData>(`/dashboard/metrics?metric=${encodeURIComponent(widget.metric)}&${qs}`),
+    enabled: !metricData && !metricLoading,
+    staleTime: 60_000,
   });
+  const data = metricData ?? fetched;
+  const isLoading = metricData ? false : Boolean(metricLoading) || fetchedLoading;
 
   const scrollBody = widget.type === "bars" || widget.type === "chart" || widget.type === "trend";
   const categoryBarWidget = usesCategoryBars(widget.metric, widget.type);

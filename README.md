@@ -55,7 +55,9 @@ make init
 | stt-service | 8001 | ASR |
 | frontend | — | React SPA |
 | postgres, redis, minio | — | Инфраструктура |
-| celery-worker, celery-beat | — | Фоновая обработка |
+| celery-worker | — | LLM + I/O очереди |
+| celery-worker-stt | — | Очередь ASR (`concurrency=1`) |
+| celery-beat | — | Расписание |
 
 ## GPU для STT
 
