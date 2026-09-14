@@ -1,4 +1,4 @@
-"""Idempotency keys for mutating API requests."""
+"""Idempotency keys for mutating API requests.
 
 Revision ID: 008
 Revises: 007
