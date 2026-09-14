@@ -2,6 +2,7 @@ import os
 
 from celery import Celery
 from celery.schedules import crontab
+from celery.signals import task_prerun, worker_process_init
 
 broker = os.getenv("CELERY_BROKER_URL", "redis://redis:6379/0")
 backend = os.getenv("CELERY_RESULT_BACKEND", "redis://redis:6379/1")
@@ -35,6 +36,21 @@ celery_app.conf.update(
 )
 
 celery_app.autodiscover_tasks(["worker.tasks"])
+
+
+@worker_process_init.connect
+def _setup_worker_logging(**kwargs):
+    from app.core.logging import setup_logging
+
+    setup_logging()
+
+
+@task_prerun.connect
+def _restore_trace_id(task=None, **kwargs):
+    from app.core.context import set_trace_id
+
+    headers = getattr(getattr(task, "request", None), "headers", None) or {}
+    set_trace_id(str(headers.get("trace_id") or ""))
 
 
 try:

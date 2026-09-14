@@ -65,6 +65,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       STT_SERVICE_URL: http://stt-service:8001
+      STT_SERVICE_TOKEN: ${STT_SERVICE_TOKEN:-ccsa-stt-internal}
     volumes:
       - ./backend:/app
     depends_on:
@@ -94,6 +95,7 @@ services:
       CELERY_RESULT_BACKEND: redis://redis:6379/1
       MINIO_ENDPOINT: minio:9000
       STT_SERVICE_URL: http://stt-service:8001
+      STT_SERVICE_TOKEN: ${STT_SERVICE_TOKEN:-ccsa-stt-internal}
     volumes:
       - ./backend:/app
     depends_on:
@@ -151,8 +153,8 @@ services:
       HF_TOKEN: ${HF_TOKEN:-}
       HUGGINGFACE_TOKEN: ${HUGGINGFACE_TOKEN:-}
       MINIO_ENDPOINT: minio:9000
-    ports:
-      - "8001:8001"
+      STT_SERVICE_TOKEN: ${STT_SERVICE_TOKEN:-ccsa-stt-internal}
+      APP_ENV: ${APP_ENV:-development}
     volumes:
       - ./backend/stt:/app/stt
       - ./models/OvozifyLabs--whisper-small-uz-v1-int8:/app/models/OvozifyLabs--whisper-small-uz-v1-int8:ro

@@ -1,16 +1,14 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import JSONResponse, Response
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
-from app.core.deps import get_current_user
+from app.core.deps import get_admin_user, get_current_user
 from app.database import get_db
-from app.models import Operator, ResearchStudy, Tag, User
+from app.models import User
 from app.schemas.common import MessageOut, Paginated
 from app.schemas.research import (
     ResearchCreateIn,
@@ -20,51 +18,12 @@ from app.schemas.research import (
     ResearchPreviewIn,
     ResearchPreviewOut,
 )
-from app.schemas.tags import TagOut
+from app.services.feature_flags import require_feature
+from app.services.idempotency import begin_idempotency, idempotency_key_header, store_idempotency
 from app.services.redis_events import subscribe_research_events
-from app.services.research_export import (
-    build_research_json_export,
-    build_research_markdown_export,
-    research_export_filename,
-)
-from app.services.research_query import build_research_calls_query, build_research_count_query
-from app.services.research_utils import filters_to_json, filters_to_query_kwargs, research_max_calls
+from app.services.research_service import research_service
 
 router = APIRouter()
-
-
-def _list_item(study: ResearchStudy) -> ResearchListItem:
-    return ResearchListItem(
-        id=study.id,
-        title=study.title,
-        status=study.status,
-        call_count=study.call_count,
-        filters_json=study.filters_json or {},
-        user_name=study.user.full_name if study.user else None,
-        created_at=study.created_at,
-        finished_at=study.finished_at,
-    )
-
-
-def _detail_out(study: ResearchStudy) -> ResearchDetailOut:
-    call_ids = study.call_ids
-    if call_ids is not None and not isinstance(call_ids, list):
-        call_ids = None
-    return ResearchDetailOut(
-        id=study.id,
-        title=study.title,
-        prompt=study.prompt,
-        filters_json=study.filters_json or {},
-        status=study.status,
-        call_count=study.call_count,
-        call_ids=call_ids,
-        llm_model=study.llm_model,
-        report_markdown=study.report_markdown,
-        error_message=study.error_message,
-        user_name=study.user.full_name if study.user else None,
-        created_at=study.created_at,
-        finished_at=study.finished_at,
-    )
 
 
 @router.get("", response_model=Paginated[ResearchListItem])
@@ -74,16 +33,8 @@ async def list_research(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    total = await db.scalar(select(func.count()).select_from(ResearchStudy)) or 0
-    result = await db.execute(
-        select(ResearchStudy)
-        .options(selectinload(ResearchStudy.user))
-        .order_by(ResearchStudy.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    )
-    items = [_list_item(s) for s in result.scalars().all()]
-    return Paginated(items=items, total=total, page=page, page_size=page_size)
+    await require_feature(db, "research")
+    return await research_service.list_studies(db, page=page, page_size=page_size)
 
 
 @router.get("/filter-options", response_model=ResearchFilterOptionsOut)
@@ -91,17 +42,8 @@ async def research_filter_options(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    queue_rows = await db.execute(
-        select(Operator.team_name)
-        .where(Operator.team_name.isnot(None), Operator.team_name != "")
-        .distinct()
-        .order_by(Operator.team_name)
-    )
-    tag_rows = await db.execute(select(Tag).order_by(Tag.name))
-    return ResearchFilterOptionsOut(
-        queues=[r[0] for r in queue_rows.all() if r[0]],
-        tags=[TagOut.model_validate(t) for t in tag_rows.scalars().all()],
-    )
+    await require_feature(db, "research")
+    return await research_service.filter_options(db)
 
 
 @router.post("/preview", response_model=ResearchPreviewOut)
@@ -110,9 +52,8 @@ async def preview_research(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(get_current_user),
 ):
-    kw = filters_to_query_kwargs(body.filters)
-    count = await db.scalar(build_research_count_query(**kw)) or 0
-    return ResearchPreviewOut(count=count, max_calls=research_max_calls())
+    await require_feature(db, "research")
+    return await research_service.preview(db, body.filters)
 
 
 @router.post("", response_model=ResearchDetailOut, status_code=status.HTTP_201_CREATED)
@@ -120,70 +61,37 @@ async def create_research(
     body: ResearchCreateIn,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
+    idem_key: str | None = Depends(idempotency_key_header),
 ):
-    kw = filters_to_query_kwargs(body.filters)
-    max_calls = research_max_calls()
-    count = await db.scalar(build_research_count_query(**kw)) or 0
-    if count == 0:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="По выбранным фильтрам нет звонков с транскриптом",
-        )
-    if count > max_calls:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Слишком много звонков ({count}). Максимум: {max_calls}. Сузьте фильтры.",
-        )
-
-    result = await db.execute(build_research_calls_query(**kw).limit(max_calls))
-    call_ids = [row[0] for row in result.all()]
-    if not call_ids:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="По выбранным фильтрам нет звонков с транскриптом",
-        )
-
-    study = ResearchStudy(
-        title=body.title.strip(),
-        prompt=body.prompt.strip(),
-        filters_json=filters_to_json(body.filters),
-        status="pending",
-        user_id=user.id,
-        call_count=0,
-        call_ids=call_ids,
+    await require_feature(db, "research")
+    replay = await begin_idempotency(
+        db, user_id=user.id, key=idem_key, method="POST", path="/research", body=body.model_dump()
     )
-    db.add(study)
-    await db.flush()
-    result = await db.execute(
-        select(ResearchStudy)
-        .where(ResearchStudy.id == study.id)
-        .options(selectinload(ResearchStudy.user))
-    )
-    study = result.scalar_one()
-
-    await db.commit()
-
-    from worker.tasks.research import run_research_study
-
-    run_research_study.delay(study.id)
-
-    return _detail_out(study)
+    if replay.replay:
+        return ResearchDetailOut(**replay.payload)
+    out = await research_service.create(db, user, body)
+    if idem_key:
+        await store_idempotency(
+            db,
+            user_id=user.id,
+            key=idem_key,
+            method="POST",
+            path="/research",
+            body=body.model_dump(),
+            status_code=201,
+            payload=out.model_dump(mode="json"),
+        )
+    return out
 
 
 @router.get("/{study_id}", response_model=ResearchDetailOut)
 async def get_research(
     study_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    study = await db.get(
-        ResearchStudy,
-        study_id,
-        options=[selectinload(ResearchStudy.user)],
-    )
-    if not study:
-        raise HTTPException(status_code=404, detail="Research study not found")
-    return _detail_out(study)
+    await require_feature(db, "research")
+    return await research_service.detail(db, study_id, user)
 
 
 @router.get("/{study_id}/export")
@@ -191,37 +99,29 @@ async def export_research(
     study_id: int,
     format: str = Query("md", pattern="^(md|json)$"),
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
 ):
-    study = await db.get(
-        ResearchStudy,
-        study_id,
-        options=[selectinload(ResearchStudy.user)],
-    )
-    if not study:
-        raise HTTPException(status_code=404, detail="Research study not found")
-    if study.status != "completed" or not study.report_markdown:
-        raise HTTPException(status_code=400, detail="Отчёт ещё не готов для экспорта")
-
-    if format == "json":
-        payload = build_research_json_export(study)
-        filename = research_export_filename(study.id, study.title, ext="json")
+    await require_feature(db, "research")
+    kind, payload, filename = await research_service.export(db, study_id, user, format)
+    if kind == "json":
         return JSONResponse(
             content=payload,
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-
-    markdown = build_research_markdown_export(study)
-    filename = research_export_filename(study.id, study.title, ext="md")
     return Response(
-        content="\ufeff" + markdown,
+        content="\ufeff" + payload,
         media_type="text/markdown; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 
 @router.get("/{study_id}/events")
-async def research_events(study_id: int, _: User = Depends(get_current_user)):
+async def research_events(
+    study_id: int, db: AsyncSession = Depends(get_db), user: User = Depends(get_current_user)
+):
+    await require_feature(db, "research")
+    await research_service.get(db, study_id, user)
+
     async def generator():
         pubsub = subscribe_research_events(study_id)
         try:
@@ -244,10 +144,8 @@ async def research_events(study_id: int, _: User = Depends(get_current_user)):
 async def delete_research(
     study_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User = Depends(get_current_user),
+    user: User = Depends(get_admin_user),
 ):
-    study = await db.get(ResearchStudy, study_id)
-    if not study:
-        raise HTTPException(status_code=404, detail="Research study not found")
-    await db.delete(study)
+    await require_feature(db, "research")
+    await research_service.delete(db, study_id, user)
     return MessageOut(message="Deleted")

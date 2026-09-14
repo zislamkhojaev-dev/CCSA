@@ -6,6 +6,7 @@ from celery import Task
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from app.core.errors import USER_ERROR_TRANSCRIBE
 from app.models import AnalysisResult, Call, Criterion, PlaygroundFile, PlaygroundJob, PlaygroundResult, Scenario, Transcription
 from app.services.call_utils import duration_seconds_from_transcription, format_transcript_for_llm
 from app.services.redis_events import publish_playground_event
@@ -181,15 +182,15 @@ def process_playground_file(self, file_id: int) -> None:
         if job_id is not None:
             _schedule_playground_queue(job_id)
             _update_playground_job_status(job_id)
-    except Exception as e:
+    except Exception:
         logger.exception("Playground file %s failed", file_id)
         if job_id is not None:
             with get_sync_session() as db:
                 pf, job = _load_playground_file(db, file_id)
                 if pf and job:
                     pf.status = "error"
-                    pf.error_message = str(e)[:500]
-            _emit(job_id, file_id, "error", done=True, error=str(e))
+                    pf.error_message = USER_ERROR_TRANSCRIBE
+            _emit(job_id, file_id, "error", done=True, error=USER_ERROR_TRANSCRIBE)
             _schedule_playground_queue(job_id)
             _update_playground_job_status(job_id)
         raise

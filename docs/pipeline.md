@@ -47,7 +47,7 @@ stateDiagram-v2
 
 1. Статус → `transcribing`
 2. Семафор Redis (`asr_max_parallel` из настроек)
-3. `POST http://stt-service:8001/transcribe` с `storage_key`
+3. `POST http://stt-service:8001/transcribe` с `storage_key` и заголовком `X-STT-Token` (`STT_SERVICE_TOKEN`)
 4. Сохранение `transcriptions`: `full_text`, `utterances`, `model_name`
 5. Статус → `transcribed`
 6. Постановка в очередь `analyze_call`
@@ -150,8 +150,8 @@ stateDiagram-v2
 
 | Действие в UI | API | Эффект |
 |---------------|-----|--------|
-| Повторное распознавание (ASR) | `POST /calls/{id}/retranscribe` | Удаляет старый транскрипт и анализ, заново ASR → LLM |
-| Повторный анализ (LLM) | `POST /calls/{id}/reanalyze` | Только LLM по текущему тексту, прежний вердикт заменяется |
+| Повторное распознавание (ASR) | `POST /calls/{id}/retranscribe` | Только admin. Удаляет старый транскрипт и анализ, заново ASR → LLM |
+| Повторный анализ (LLM) | `POST /calls/{id}/reanalyze` | Только admin. Только LLM по текущему тексту, прежний вердикт заменяется |
 | Восстановить зависшие звонки | `POST /settings/maintenance/recover-stuck-calls` | Возвращает в очередь брошенные обработки |
 
 ## 5. Исследования (LLM метаанализ)

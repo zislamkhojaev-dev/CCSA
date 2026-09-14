@@ -9,19 +9,18 @@ worker releases its claim automatically.
 from __future__ import annotations
 
 import logging
-import os
 import uuid
 from contextlib import contextmanager
 
-import redis
+from app.config import get_settings
+from app.core.logging import log_error
+from app.services.redis_client import get_redis
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_LOCK_TTL = 1800
 
-
-def _redis() -> redis.Redis:
-    return redis.from_url(os.getenv("REDIS_URL", "redis://redis:6379/0"))
+def _lock_ttl() -> int:
+    return get_settings().redis_lock_ttl_sec
 
 
 def _key(kind: str, call_id: int) -> str:
@@ -30,21 +29,21 @@ def _key(kind: str, call_id: int) -> str:
 
 def is_locked(kind: str, call_id: int) -> bool:
     try:
-        return bool(_redis().exists(_key(kind, call_id)))
+        return bool(get_redis().exists(_key(kind, call_id)))
     except Exception as e:
-        logger.warning("Lock check failed for %s:%s: %s", kind, call_id, e)
+        log_error(logger, "Lock check failed", method="is_locked", params={"kind": kind, "call_id": call_id}, exc=e)
         return False
 
 
 def release(kind: str, call_id: int) -> None:
     try:
-        _redis().delete(_key(kind, call_id))
+        get_redis().delete(_key(kind, call_id))
     except Exception as e:
-        logger.warning("Lock release failed for %s:%s: %s", kind, call_id, e)
+        log_error(logger, "Lock release failed", method="release", params={"kind": kind, "call_id": call_id}, exc=e)
 
 
 @contextmanager
-def call_task_lock(kind: str, call_id: int, *, ttl: int = DEFAULT_LOCK_TTL):
+def call_task_lock(kind: str, call_id: int, *, ttl: int | None = None):
     """Yield True when the lock was claimed, False when another worker holds it.
 
     If Redis is unreachable the work is allowed to proceed unlocked — losing
@@ -53,13 +52,14 @@ def call_task_lock(kind: str, call_id: int, *, ttl: int = DEFAULT_LOCK_TTL):
     key = _key(kind, call_id)
     token = uuid.uuid4().hex
     acquired = False
-    client: redis.Redis | None = None
+    client = None
+    lock_ttl = ttl if ttl is not None else _lock_ttl()
 
     try:
-        client = _redis()
-        acquired = bool(client.set(key, token, nx=True, ex=max(60, int(ttl))))
+        client = get_redis()
+        acquired = bool(client.set(key, token, nx=True, ex=max(60, int(lock_ttl))))
     except Exception as e:
-        logger.warning("Lock acquire failed for %s, proceeding unlocked: %s", key, e)
+        log_error(logger, "Lock acquire failed, proceeding unlocked", method="call_task_lock", params={"key": key}, exc=e)
         yield True
         return
 
@@ -68,7 +68,7 @@ def call_task_lock(kind: str, call_id: int, *, ttl: int = DEFAULT_LOCK_TTL):
     finally:
         if acquired and client is not None:
             try:
-                if client.get(key) == token.encode():
+                if client.get(key) == token:
                     client.delete(key)
             except Exception as e:
-                logger.warning("Lock release failed for %s: %s", key, e)
+                log_error(logger, "Lock release failed", method="call_task_lock", params={"key": key}, exc=e)

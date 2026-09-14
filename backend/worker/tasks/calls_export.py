@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
+from app.core.errors import USER_ERROR_EXPORT
 from app.models import CallExportJob
 from app.services.calls_export import (
     CALLS_EXPORT_MAX_ROWS,
@@ -63,13 +64,13 @@ def run_calls_export(job_id: int) -> dict:
         _emit(job_id, status="completed", row_count=len(rows), done=True)
         logger.info("Call export job %s completed: %s rows", job_id, len(rows))
         return {"ok": True, "row_count": len(rows)}
-    except Exception as e:
+    except Exception:
         logger.exception("Call export job %s failed", job_id)
         with get_sync_session() as db:
             job = db.get(CallExportJob, job_id)
             if job:
                 job.status = "error"
-                job.error_message = str(e)[:500]
+                job.error_message = USER_ERROR_EXPORT
                 job.finished_at = datetime.now(UTC)
-        _emit(job_id, status="error", error=str(e)[:500], done=True)
-        return {"ok": False, "error": str(e)}
+        _emit(job_id, status="error", error=USER_ERROR_EXPORT, done=True)
+        return {"ok": False, "error": USER_ERROR_EXPORT}

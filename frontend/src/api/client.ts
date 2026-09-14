@@ -1,5 +1,22 @@
 const API_BASE = import.meta.env.VITE_API_URL || "/api/v1";
 
+export type Paginated<T> = {
+  items: T[];
+  total: number;
+  page: number;
+  page_size: number;
+};
+
+function errorMessageFromBody(err: Record<string, unknown>, fallback: string): string {
+  if (typeof err.message === "string" && err.message) return err.message;
+  const detail = err.detail;
+  if (typeof detail === "string") return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ") || fallback;
+  }
+  return fallback;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...options,
@@ -15,14 +32,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    const detail = err.detail;
-    const message =
-      typeof detail === "string"
-        ? detail
-        : Array.isArray(detail)
-          ? detail.map((d: { msg?: string }) => d.msg).filter(Boolean).join("; ")
-          : "Request failed";
-    throw new Error(message || "Request failed");
+    throw new Error(errorMessageFromBody(err, "Request failed"));
   }
   if (res.status === 204) return {} as T;
   return res.json();

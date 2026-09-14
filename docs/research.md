@@ -136,6 +136,8 @@ Content-Type: application/json
 
 Ответ `201`: объект исследования (`id`, `status: "pending"`, …). Celery-задача стартует автоматически.
 
+Повтор с тем же заголовком `Idempotency-Key` и тем же телом возвращает сохранённый ответ. Выключенный `FEATURE_RESEARCH` даёт `403` (`FEATURE_DISABLED`). Удаление — только роль `admin`.
+
 ### Список и детали
 
 ```http
@@ -175,7 +177,7 @@ make migrate
 
 | Компонент | Путь |
 |-----------|------|
-| API | `backend/app/api/research.py` |
+| API | `backend/app/api/research.py` (делегирует в `research_service.py`) |
 | Схемы | `backend/app/schemas/research.py` |
 | Выборка звонков | `backend/app/services/research_query.py` |
 | LLM cohort | `backend/app/services/llm.py` → `run_cohort_analysis` |

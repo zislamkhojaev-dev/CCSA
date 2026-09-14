@@ -6,6 +6,12 @@
 
 Аутентификация: сессионная cookie после `POST /api/v1/auth/login`.
 
+Ошибки: JSON `{ "error_code", "message", "trace_id" }` — см. [error-codes.md](error-codes.md).
+
+Идемпотентность: заголовок `Idempotency-Key` на `POST /research`, `POST /playground/jobs`, `POST /calls/export/jobs`, `POST /calls/{id}/notes`, `POST /calls/bulk-delete`. Повтор с тем же ключом и телом возвращает сохранённый ответ.
+
+Списки `GET /scenarios`, `GET /tags`, `GET /settings/users` — `Paginated`: `{ items, total, page, page_size }`.
+
 ## Основные группы endpoints
 
 ### Auth
@@ -170,7 +176,7 @@ POST /research
 ```
 
 - `400` — не задан `webitel_api_url` в настройках коннектора;
-- `502` — Webitel недоступен или вернул ошибку (текст ошибки в `detail`).
+- `502` — Webitel недоступен (`EXT_WEBITEL_UNAVAILABLE`).
 
 ### Health
 
@@ -180,7 +186,13 @@ POST /research
 
 ## Коды ответов
 
-- `401` — не авторизован
-- `403` — нет прав (например, настройки для non-admin)
-- `422` — ошибка валидации тела запроса
-- `500` — внутренняя ошибка (см. логи `api` / `celery-worker`)
+Тело ошибки всегда `{ error_code, message, trace_id }` — [error-codes.md](error-codes.md).
+
+- `401` — не авторизован (`AUTH_UNAUTHORIZED`, `AUTH_INVALID_CREDENTIALS`)
+- `403` — нет прав (`AUTH_FORBIDDEN`, `FEATURE_DISABLED`) или пользователь деактивирован
+- `409` — конфликт (`VAL_CONFLICT`, `JOB_IN_PROGRESS`, `IDEMPOTENCY_CONFLICT`)
+- `422` — валидация тела запроса (`VAL_INVALID_INPUT`)
+- `502` / `503` — внешние системы (Webitel, LLM, STT, storage)
+- `500` — внутренняя ошибка (`INTERNAL`, `DB_ERROR`); стек-трейс на клиент не отдаётся
+
+Только роль `admin`: bulk-delete звонков, удаление сценария/исследования, sync операторов, retranscribe / reanalyze, тест коннектора Webitel.

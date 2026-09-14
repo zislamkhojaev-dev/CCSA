@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Plus } from "lucide-react";
-import { api } from "../api/client";
+import { api, type Paginated } from "../api/client";
 import { usePlayground } from "../context/PlaygroundContext";
 import AudioWaveform from "../components/AudioWaveform";
 import CriteriaChecklist from "../components/CriteriaChecklist";
@@ -65,7 +65,7 @@ export default function PlaygroundPage() {
 
   const { data: scenarios } = useQuery({
     queryKey: ["scenarios"],
-    queryFn: () => api.get<Scenario[]>("/scenarios"),
+    queryFn: () => api.get<Paginated<Scenario>>("/scenarios?page=1&page_size=100"),
   });
 
   const { data: job, refetch } = useQuery({
@@ -231,7 +231,7 @@ export default function PlaygroundPage() {
                   disabled={!!jobId}
                 >
                   <option value="">— выберите —</option>
-                  {scenarios?.map((s) => (
+                  {scenarios?.items.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>

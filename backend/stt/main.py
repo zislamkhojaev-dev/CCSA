@@ -5,7 +5,7 @@ import warnings
 from io import BytesIO
 from typing import Any, Literal
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel
 
 from stt.diarization import (
@@ -646,7 +646,12 @@ def health():
 
 
 @app.post("/transcribe", response_model=TranscribeResponse)
-def transcribe(req: TranscribeRequest):
+def transcribe(req: TranscribeRequest, x_stt_token: str | None = Header(default=None, alias="X-STT-Token")):
+    expected = os.getenv("STT_SERVICE_TOKEN", "")
+    if expected and (x_stt_token or "") != expected:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    if not expected and os.getenv("APP_ENV") == "production":
+        raise HTTPException(status_code=401, detail="Unauthorized")
     audio_bytes = _download_audio(req.storage_key)
     model, model_name, engine = _get_model(req.model)
 

@@ -8,14 +8,16 @@
 
 ```bash
 docker compose logs stt-service --tail 80
-curl -s http://localhost:8001/health | python3 -m json.tool
+docker compose exec stt-service curl -s http://localhost:8001/health | python3 -m json.tool
 ```
+
+Порт `8001` на хост не публикуется. `/transcribe` без `X-STT-Token` отклоняется.
 
 - Проверьте наличие `models/OvozifyLabs--whisper-small-uz-v1-int8/model.bin`
 - При ошибке загрузки — `make convert-stt-model` или см. [models/README.md](../models/README.md)
 - Перезапуск: `docker compose restart stt-service`
 
-На карточке звонка: **Повторное распознавание (ASR)**.
+На карточке звонка: **Повторное распознавание (ASR)** (роль admin).
 
 ---
 
@@ -105,7 +107,7 @@ print('key set:', bool(s.openai_api_key), '| model:', s.openai_model)"
 docker compose logs celery-worker | grep "outside automation window"
 ```
 
-Ручные «Повторный анализ» и «Повторное распознавание» доступны в любое время.
+Ручные «Повторный анализ» и «Повторное распознавание» доступны в любое время (роль admin).
 
 ---
 
@@ -168,6 +170,18 @@ docker compose logs celery-worker --tail 30 | grep -A 15 "\[tasks\]"
 
 ---
 
+## Ошибка API (`error_code`, 401 / 403 / 502)
+
+Ответ JSON: `{ "error_code", "message", "trace_id" }`. Покажите пользователю `message`; `trace_id` совпадает с заголовком `X-Request-ID` и полем в JSON-логах `api` / worker.
+
+```bash
+docker compose logs api --tail 80 | grep '<trace_id>'
+```
+
+Коды: [error-codes.md](error-codes.md). `403` + `FEATURE_DISABLED` — выключен feature toggle. `403` + `AUTH_FORBIDDEN` — операция только для admin (bulk-delete, удаление сценария/исследования, sync операторов, повтор ASR/LLM).
+
+---
+
 ## Полезные команды
 
 ```bash
@@ -183,4 +197,7 @@ docker compose exec postgres psql -U ccsa -d ccsa -c \
 
 # Тесты API
 docker compose exec api pytest -q
+
+# Тесты фронтенда
+cd frontend && npm test
 ```

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Routes, Route, NavLink } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { api } from "../api/client";
+import { api, type Paginated } from "../api/client";
 
 const WEEKDAYS = [
   { v: 0, l: "Пн" },
@@ -560,7 +560,10 @@ function AutomationTab() {
 function AdminTab() {
   const { data, refetch } = useQuery({
     queryKey: ["users"],
-    queryFn: () => api.get<{ id: number; login: string; full_name: string; role: string; is_active: boolean; created_at: string }[]>("/settings/users"),
+    queryFn: () =>
+      api.get<Paginated<{ id: number; login: string; full_name: string; role: string; is_active: boolean; created_at: string }>>(
+        "/settings/users?page=1&page_size=100",
+      ),
   });
   const [login, setLogin] = useState("");
   const [password, setPassword] = useState("");
@@ -590,7 +593,7 @@ function AdminTab() {
           <tr><th>Имя</th><th>Логин</th><th>Роль</th><th>Статус</th><th>Создан</th><th>Действия</th></tr>
         </thead>
         <tbody>
-          {data?.map((u) => (
+          {data?.items.map((u) => (
             <tr key={u.id}>
               <td>{u.full_name}</td>
               <td>{u.login}</td>

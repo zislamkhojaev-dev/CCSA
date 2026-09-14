@@ -17,12 +17,16 @@ make init
 
 `make init` выполняет: `docker compose build`, `up`, миграции Alembic, seed (админ и демо-сценарий).
 
-Откройте **http://localhost:8080**
+Откройте **http://localhost:8080**. Форма входа поля не подставляет.
 
-| Параметр | Значение по умолчанию |
-|----------|------------------------|
-| Логин | `admin` |
-| Пароль | `admin123` |
+Учётные данные сида задаются в `.env`:
+
+| Параметр | Переменная | В `.env.example` (только development) |
+|----------|------------|----------------------------------------|
+| Логин | `SEED_ADMIN_LOGIN` | `admin` |
+| Пароль | `SEED_ADMIN_PASSWORD` | `admin123` |
+
+В `APP_ENV=production` дефолтный пароль `admin123` запрещён — задайте свой `SEED_ADMIN_PASSWORD`. После обновления кода примените миграции: `make migrate` (нужна ревизия `008_idempotency_keys`). Подробности: [changelog.md](changelog.md).
 
 ## Команды Makefile
 
@@ -34,7 +38,7 @@ make init
 | `make logs` | Логи всех сервисов |
 | `make migrate` | `alembic upgrade head` |
 | `make seed` | Начальные данные |
-| `make test` | pytest в контейнере api |
+| `make test` | pytest API в контейнере `api` |
 | `make gpu-up` | STT с GPU (overlay compose) |
 | `make convert-stt-model` | Конвертация Whisper → CT2 локально |
 
@@ -48,7 +52,7 @@ make init
 | postgres | — | БД платформы |
 | redis | — | Celery, семафор ASR, SSE плейграунда |
 | minio | — | Хранение аудио |
-| stt-service | 8001 | Распознавание речи |
+| stt-service | — (8001 только в docker-сети) | Распознавание речи (`X-STT-Token`) |
 | celery-worker | — | LLM и I/O |
 | celery-worker-stt | — | Распознавание (очередь `stt`) |
 | celery-beat | — | Расписание (Webitel, очередь звонков) |
@@ -65,8 +69,10 @@ make convert-stt-model
 
 Проверка после старта:
 
+Порт STT на хост не публикуется. Health из контейнера:
+
 ```bash
-curl -s http://localhost:8001/health | python3 -m json.tool
+docker compose exec stt-service curl -s http://localhost:8001/health | python3 -m json.tool
 ```
 
 ## Перезапуск после обновления кода

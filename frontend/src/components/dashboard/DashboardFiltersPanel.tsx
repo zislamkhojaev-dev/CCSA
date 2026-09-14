@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { api } from "../../api/client";
+import { api, type Paginated } from "../../api/client";
 import type { DashboardFiltersState, DashboardPeriodMode } from "../../utils/dashboardFilters";
 import { DASHBOARD_PERIOD_PRESETS } from "../../utils/dashboardFilters";
 
@@ -11,7 +11,7 @@ type Props = {
 export default function DashboardFiltersPanel({ filters, onChange }: Props) {
   const { data: scenarios } = useQuery({
     queryKey: ["scenarios-list"],
-    queryFn: () => api.get<{ id: number; name: string }[]>("/scenarios"),
+    queryFn: () => api.get<Paginated<{ id: number; name: string }>>("/scenarios?page=1&page_size=100"),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -29,7 +29,7 @@ export default function DashboardFiltersPanel({ filters, onChange }: Props) {
             onChange={(e) => set({ scenarioId: e.target.value ? Number(e.target.value) : null })}
           >
             <option value="">Все сценарии</option>
-            {scenarios?.map((s) => (
+            {scenarios?.items.map((s) => (
               <option key={s.id} value={s.id}>
                 {s.name}
               </option>

@@ -23,6 +23,10 @@ DEFAULT_SETTINGS = {
     "asr_http_timeout_sec": "600",
     "playground_sequential": "true",
     "celery_worker_concurrency": "1",
+    "feature_research": "true",
+    "feature_playground": "true",
+    "feature_webitel_sync": "true",
+    "feature_dashboard_constructor": "true",
     "quality_threshold_good": "80",
     "quality_threshold_mid": "50",
     "quality_target": "85",
@@ -49,6 +53,11 @@ async def get_setting(db: AsyncSession, key: str, default: str = "") -> str:
     try:
         return decrypt_value(row.value_encrypted)
     except Exception:
+        import logging
+
+        from app.core.logging import log_error
+
+        log_error(logging.getLogger(__name__), "Settings decrypt failed", method="get_setting", params={"key": key})
         return default
 
 

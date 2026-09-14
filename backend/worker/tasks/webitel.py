@@ -6,7 +6,10 @@ from datetime import datetime, timedelta
 from celery import Task
 from sqlalchemy import select
 
+from app.core.errors import USER_ERROR_WEBITEL
+from app.core.logging import log_error
 from app.models import Call, Operator, SyncRun
+from app.services.feature_flags import is_feature_enabled_sync
 from app.services.storage import storage_service
 from app.services.webitel import WebitelClient
 from worker.celery_app import celery_app
@@ -87,18 +90,19 @@ def _import_one_call(client: WebitelClient, item: dict, operator_cache: dict[str
             call = db.get(Call, call_id)
             if call:
                 call.status = "error"
-                call.error_message = "No recording file"
+                call.error_message = "Запись звонка не найдена"
         return "error"
 
     try:
         audio = asyncio.run(client.download_recording(file_id))
         key = storage_service.upload_bytes(audio, "calls", f"{call_uuid}.wav")
     except Exception as e:
+        log_error(logger, "Webitel download failed", method="_import_call", params={"call_uuid": call_uuid}, exc=e)
         with get_sync_session() as db:
             call = db.get(Call, call_id)
             if call:
                 call.status = "error"
-                call.error_message = f"Download failed: {e}"
+                call.error_message = USER_ERROR_WEBITEL
         return "error"
 
     with get_sync_session() as db:
@@ -115,6 +119,9 @@ def _import_one_call(client: WebitelClient, item: dict, operator_cache: dict[str
 @celery_app.task(name="worker.tasks.webitel.sync_webitel_calls", base=WebitelTask, bind=True)
 def sync_webitel_calls(self) -> None:
     with get_sync_session() as db:
+        if not is_feature_enabled_sync(db, "webitel_sync"):
+            logger.info("Webitel sync skipped: feature disabled")
+            return
         days = parse_sync_days(get_setting_sync(db, "webitel_sync_days", "[0,1,2,3,4]"))
         cron = get_setting_sync(db, "webitel_sync_cron", "*/30 * * * *")
         if not cron_matches_now(cron):
@@ -152,7 +159,7 @@ def sync_webitel_calls(self) -> None:
             )
         except Exception as e:
             run.status = "error"
-            run.error_message = str(e)
+            run.error_message = USER_ERROR_WEBITEL
             run.finished_at = datetime.utcnow()
             logger.exception("Webitel sync failed")
             fetch_error = e

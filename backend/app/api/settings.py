@@ -1,15 +1,14 @@
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.core.deps import get_admin_user, get_current_user
 from app.database import get_db
-from app.core.security import hash_password
-from app.models import AutomationRule, User
+from app.models import User
 from app.schemas.auth import UserCreate, UserOut, UserUpdate
-from app.schemas.common import MessageOut
+from app.schemas.common import MessageOut, Paginated
 from app.schemas.settings import (
     AutomationRuleOut,
     AutomationRuleUpdate,
@@ -21,9 +20,9 @@ from app.schemas.settings import (
     WebitelSettings,
 )
 from app.services.quality_settings import load_quality_config, normalize_config
+from app.services.settings_admin_service import settings_admin_service
 from app.services.settings_store import get_bool_setting, get_setting, set_setting
-from app.services.webitel import WebitelClient
-from app.services.webitel_db import test_connection as test_webitel_db
+from app.services.task_dispatch import task_dispatcher
 
 
 def _parse_int_setting(raw: str, default: int, *, min_val: int, max_val: int) -> int:
@@ -52,7 +51,7 @@ async def get_models_settings(db: AsyncSession = Depends(get_db), _: User = Depe
         pii_anonymization=await get_bool_setting(db, "pii_anonymization", True),
         openai_api_key_set=bool(openai_key),
         gemini_api_key_set=bool(await get_setting(db, "gemini_api_key")),
-        ollama_base_url=await get_setting(db, "ollama_base_url", "http://host.docker.internal:11434"),
+        ollama_base_url=await get_setting(db, "ollama_base_url", get_settings().ollama_base_url),
         asr_max_parallel=_parse_int_setting(
             await get_setting(db, "asr_max_parallel", "1"), 1, min_val=1, max_val=8
         ),
@@ -138,9 +137,7 @@ async def update_quality_settings(
 
 @router.post("/quality/backfill-topics", response_model=MessageOut)
 async def backfill_topics_endpoint(_: User = Depends(get_admin_user)):
-    from worker.tasks.pipeline import backfill_topics
-
-    backfill_topics.delay()
+    task_dispatcher.backfill_topics()
     return MessageOut(message="Классификация тем запущена в фоне")
 
 
@@ -148,9 +145,7 @@ async def backfill_topics_endpoint(_: User = Depends(get_admin_user)):
 async def recover_stuck_calls_endpoint(
     stale_minutes: int = 0, _: User = Depends(get_admin_user)
 ):
-    from worker.tasks.pipeline import recover_stuck_calls
-
-    recover_stuck_calls.delay(max(0, stale_minutes))
+    task_dispatcher.recover_stuck_calls(max(0, stale_minutes))
     return MessageOut(message="Восстановление зависших звонков запущено")
 
 
@@ -186,12 +181,8 @@ async def update_webitel_settings(
 
 
 @router.post("/webitel/test", response_model=dict)
-async def test_webitel(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
-    url = await get_setting(db, "webitel_api_url")
-    token = await get_setting(db, "webitel_access_token")
-    client = WebitelClient(url, token)
-    ok = await client.test_connection()
-    return {"ok": ok, "message": "OK" if ok else "Не удалось подключиться"}
+async def test_webitel(db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)):
+    return await settings_admin_service.test_webitel(db)
 
 
 @router.get("/webitel/db", response_model=WebitelDbSettings)
@@ -219,79 +210,39 @@ async def update_webitel_db(
 
 
 @router.post("/webitel/db/test", response_model=dict)
-async def test_webitel_db_endpoint(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
-    ok, msg = test_webitel_db(
-        await get_setting(db, "webitel_db_host"),
-        int(await get_setting(db, "webitel_db_port", "5432")),
-        await get_setting(db, "webitel_db_name", "webitel"),
-        await get_setting(db, "webitel_db_user"),
-        await get_setting(db, "webitel_db_password"),
-    )
-    return {"ok": ok, "message": msg}
+async def test_webitel_db_endpoint(db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)):
+    return await settings_admin_service.test_webitel_db(db)
 
 
 @router.get("/automation", response_model=AutomationRuleOut)
 async def get_automation(db: AsyncSession = Depends(get_db), _: User = Depends(get_current_user)):
-    result = await db.execute(select(AutomationRule).limit(1))
-    rule = result.scalar_one_or_none()
-    if not rule:
-        rule = AutomationRule(is_enabled=True, schedule_cron="*/30 * * * *", batch_size=10, active_days=[0, 1, 2, 3, 4])
-        db.add(rule)
-        await db.flush()
-    return rule
+    return await settings_admin_service.get_or_create_automation(db)
 
 
 @router.put("/automation", response_model=AutomationRuleOut)
 async def update_automation(
     body: AutomationRuleUpdate, db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)
 ):
-    result = await db.execute(select(AutomationRule).limit(1))
-    rule = result.scalar_one_or_none()
-    if not rule:
-        rule = AutomationRule()
-        db.add(rule)
-    for field, value in body.model_dump(exclude_unset=True).items():
-        setattr(rule, field, value)
-    await db.flush()
-    return rule
+    return await settings_admin_service.update_automation(db, body)
 
 
-@router.get("/users", response_model=list[UserOut])
-async def list_users(db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
-    return result.scalars().all()
+@router.get("/users", response_model=Paginated[UserOut])
+async def list_users(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(get_admin_user),
+):
+    return await settings_admin_service.list_users(db, page=page, page_size=page_size)
 
 
 @router.post("/users", response_model=UserOut)
 async def create_user(body: UserCreate, db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)):
-    existing = await db.execute(select(User).where(User.login == body.login))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="Login exists")
-    user = User(
-        login=body.login,
-        password_hash=hash_password(body.password),
-        full_name=body.full_name,
-        role=body.role,
-    )
-    db.add(user)
-    await db.flush()
-    return user
+    return await settings_admin_service.create_user(db, body)
 
 
 @router.patch("/users/{user_id}", response_model=UserOut)
 async def update_user(
     user_id: int, body: UserUpdate, db: AsyncSession = Depends(get_db), _: User = Depends(get_admin_user)
 ):
-    result = await db.execute(select(User).where(User.id == user_id))
-    user = result.scalar_one_or_none()
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    if body.full_name is not None:
-        user.full_name = body.full_name
-    if body.role is not None:
-        user.role = body.role
-    if body.is_active is not None:
-        user.is_active = body.is_active
-    if body.password:
-        user.password_hash = hash_password(body.password)
-    return user
+    return await settings_admin_service.update_user(db, user_id, body)

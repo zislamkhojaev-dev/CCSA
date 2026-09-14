@@ -7,6 +7,7 @@
 | Документ | Описание |
 |----------|----------|
 | [Установка и запуск](installation.md) | Docker, первый запуск, миграции, вход в систему |
+| [Журнал изменений](changelog.md) | Production readiness, контракт API, миграции |
 | [Архитектура](architecture.md) | Сервисы, потоки данных, компоненты |
 | [Конфигурация](configuration.md) | `.env`, настройки в UI, ASR, LLM, автоматизация |
 | [Пайплайн обработки](pipeline.md) | От звонка до оценки: Webitel → STT → LLM |
@@ -15,15 +16,16 @@
 | [Дизайн-система UI](design-system.md) | Токены, темы, компоненты (Cursor-style flat UI) |
 | [Дашборды: внешний вид](dashboard-visual.md) | Визуальный язык дашбордов (по референсам) |
 | [Дашборды: состав](dashboard-composition.md) | Метрики и визуализация для руководителя КЦ |
+| [Коды ошибок](error-codes.md) | Error Codes Matrix, `trace_id` |
 | [API](api.md) | REST endpoints, аутентификация |
 | [Разработка](development.md) | Локальная разработка, тесты, миграции |
 | [Устранение неполадок](troubleshooting.md) | ASR, таймауты, Redis, типичные ошибки |
 
 ## Быстрые ссылки
 
-- **Интерфейс:** http://localhost:8080 (логин по умолчанию `admin` / `admin123`)
+- **Интерфейс:** http://localhost:8080 (логин задаётся при сиде, не хранится в UI)
 - **API (OpenAPI):** http://localhost:8000/docs (напрямую к контейнеру `api`)
-- **STT health:** http://localhost:8001/health
+- **STT:** только внутренняя docker-сеть (`stt-service:8001`), не публикуется на хост
 - **Модели ASR:** [models/README.md](../models/README.md)
 
 ## Стек (кратко)

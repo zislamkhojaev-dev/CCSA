@@ -50,6 +50,7 @@
 | `STT_INITIAL_PROMPT` | — | Словарь КЦ для Whisper (бренды, типичные фразы) |
 | `STT_CLIENT_CHANNEL` | `left` | Канал клиента в стерео (`left` / `right`) |
 | `HF_TOKEN` | — | Для Pyannote (Hugging Face) |
+| `STT_SERVICE_TOKEN` | — | Shared secret API → STT (`X-STT-Token`); обязателен в production |
 
 Полный список STT-переменных — в `backend/stt/main.py` (`STT_BEAM_SIZE`, `STT_VAD_FILTER`, …).
 
@@ -78,6 +79,24 @@
 | `WEBITEL_ACCESS_TOKEN` | Токен |
 
 Также настраивается в UI: **Настройки → Коннекторы**.
+
+## Production (обязательные env)
+
+При `APP_ENV=production` процесс **не стартует** с dev-дефолтами. Задайте явно:
+
+| Переменная | Назначение |
+|------------|------------|
+| `SECRET_KEY` | JWT |
+| `SETTINGS_ENCRYPTION_KEY` | Fernet для ключей в БД |
+| `SEED_ADMIN_PASSWORD` | Пароль сида (не `admin123`) |
+| `CORS_ORIGINS` | Список origin через запятую, например `https://ccsa.example` |
+| `STT_SERVICE_TOKEN` | Shared secret API → STT (`X-STT-Token`) |
+
+Таймауты и лимиты (опционально, есть дефолты): `LLM_TIMEOUT_SEC`, `WEBITEL_TIMEOUT_SEC`, `DB_STATEMENT_TIMEOUT_MS`, `DB_POOL_TIMEOUT`.
+
+### Feature toggles
+
+Env `FEATURE_RESEARCH` / `FEATURE_PLAYGROUND` / `FEATURE_WEBITEL_SYNC` / `FEATURE_DASHBOARD_CONSTRUCTOR` (`true`/`false`) перекрывают значения в `app_settings`. Позволяют выключить крупную фичу без деплоя.
 
 ---
 

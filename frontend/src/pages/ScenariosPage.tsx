@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowUp, Copy, Pencil, Trash2 } from "lucide-react";
-import { api } from "../api/client";
+import { api, type Paginated } from "../api/client";
 
 type Scenario = {
   id: number;
@@ -16,7 +16,7 @@ export default function ScenariosPage() {
   const qc = useQueryClient();
   const { data, isLoading } = useQuery({
     queryKey: ["scenarios"],
-    queryFn: () => api.get<Scenario[]>("/scenarios"),
+    queryFn: () => api.get<Paginated<Scenario>>("/scenarios?page=1&page_size=100"),
   });
 
   const remove = useMutation({
@@ -53,7 +53,7 @@ export default function ScenariosPage() {
               </tr>
             </thead>
             <tbody>
-              {data?.map((s) => (
+              {data?.items.map((s) => (
                 <tr key={s.id}>
                   <td>
                     <Link to={`/scenarios/${s.id}`}>{s.name}</Link>

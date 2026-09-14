@@ -15,11 +15,13 @@
 Полная документация в каталоге **[docs/](docs/README.md)**:
 
 - [Установка и запуск](docs/installation.md)
+- [Журнал изменений](docs/changelog.md)
 - [Архитектура](docs/architecture.md)
 - [Конфигурация](docs/configuration.md)
 - [Пайплайн обработки](docs/pipeline.md)
 - [Исследования (метаанализ)](docs/research.md)
 - [Руководство пользователя](docs/user-guide.md)
+- [Коды ошибок](docs/error-codes.md)
 - [API](docs/api.md)
 - [Разработка](docs/development.md)
 - [Устранение неполадок](docs/troubleshooting.md)
@@ -31,7 +33,7 @@ cp .env.example .env
 make init
 ```
 
-Откройте **http://localhost:8080** — логин `admin` / `admin123`.
+Откройте **http://localhost:8080**. Логин сида — `SEED_ADMIN_LOGIN` / `SEED_ADMIN_PASSWORD` из `.env` (в примере для development: `admin` / `admin123`). Форма входа поля не подставляет.
 
 Модель ASR: [models/README.md](models/README.md).
 
@@ -52,7 +54,7 @@ make init
 |--------|------|----------|
 | nginx | 8080 | Единая точка входа |
 | api | 8000 (internal) | REST API |
-| stt-service | 8001 | ASR |
+| stt-service | — (8001 только в docker-сети) | ASR |
 | frontend | — | React SPA |
 | postgres, redis, minio | — | Инфраструктура |
 | celery-worker | — | LLM + I/O очереди |
@@ -69,7 +71,8 @@ make gpu-up
 ## Тесты
 
 ```bash
-make test
+make test                 # pytest API
+cd frontend && npm test   # vitest
 ```
 
 ## Переменные окружения

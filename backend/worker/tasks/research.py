@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 from celery import Task
 
+from app.core.errors import USER_ERROR_ANALYZE
 from app.models import ResearchStudy
 from app.schemas.research import ResearchFilters
 from app.services.llm import CohortCall, run_cohort_analysis
@@ -114,9 +115,9 @@ def run_research_study(self, study_id: int) -> None:
 
         _emit(study_id, status="completed", done=True, call_count=len(cohort))
 
-    except Exception as e:
+    except Exception:
         logger.exception("Research study %s failed", study_id)
-        err = str(e)[:2000]
+        err = USER_ERROR_ANALYZE
         with get_sync_session() as db:
             study = db.get(ResearchStudy, study_id)
             if study:

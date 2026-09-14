@@ -6,10 +6,12 @@
 |---------|--------|
 | `backend/app` | `uvicorn app.main:app --reload` (нужны PG, Redis, MinIO) |
 | `backend/worker` | `celery -A worker.celery_app worker -l info` |
-| `backend/stt` | `uvicorn stt.main:app --port 8001` |
+| `backend/stt` | `uvicorn stt.main:app --port 8001` (нужен `STT_SERVICE_TOKEN`) |
 | `frontend` | `npm run dev` (прокси к API — через nginx или vite proxy) |
 
 В Docker тома монтируют `./backend` и `./frontend` — изменения подхватываются без rebuild.
+
+Слои: контроллеры `app/api/` только парсят HTTP и вызывают сервисы. SQL и оркестрация — `app/services/*_service.py`. Внешние системы — порты в `app/ports.py` и адаптеры. Ошибки — `AppError` / `ErrorCode` (`app/core/errors.py`), не сырой `HTTPException(detail=str(e))`. Логи — `get_logger()` из `app/core/logging.py`. Журнал изменений: [changelog.md](changelog.md).
 
 ## Миграции БД
 
@@ -21,20 +23,34 @@ docker compose exec api alembic revision --autogenerate -m "описание"
 make migrate
 ```
 
+Актуальная ревизия production-readiness: `008_idempotency_keys`. После pull на окружение: `make migrate`.
+
 ## Seed
 
 ```bash
 make seed
-# admin / admin123, демо-сценарий с критериями
+# логин/пароль из SEED_ADMIN_LOGIN / SEED_ADMIN_PASSWORD, демо-сценарий с критериями
 ```
 
 ## Тесты
 
+`backend/pytest.ini` задаёт `pythonpath = .`. Из корня репозитория или каталога `backend`:
+
 ```bash
 make test
-# или
-docker compose exec api pytest -q backend/tests
+# или локально (venv Python 3.11+):
+cd backend && .venv/bin/pytest -q
 ```
+
+Основные файлы: `backend/tests/conftest.py` (моки портов), `test_observability.py`, `test_recovery_and_services.py`, `test_worker_locks.py`, плюс существующие `test_research_query.py` и др.
+
+Фронтенд (vitest):
+
+```bash
+cd frontend && npm test
+```
+
+CI (`.github/workflows/ci.yml`): ruff + pytest + vitest.
 
 ## Линтер
 
@@ -46,7 +62,7 @@ make lint
 
 1. `backend/app/services/dashboard_metrics.py` — логика метрики
 2. `frontend/src/types/dashboard.ts` — ключ, подпись, `suggestedWidgetDimensions`
-3. Дефолтные виджеты в `backend/app/api/dashboard.py` (опционально)
+3. Дефолтные виджеты в `backend/app/services/dashboard_service.py` (`DEFAULT_WIDGETS`, опционально)
 
 Layout виджета: `{ id, type, title, metric, width: 1–4, height: 1–2 }`. Legacy `size`
 (`small`/`medium`/`large`) мигрирует при загрузке.
@@ -60,7 +76,7 @@ LLM JSON Schema строится динамически по списку кри
 
 | Компонент | Путь |
 |-----------|------|
-| API | `backend/app/api/research.py` |
+| API | `backend/app/api/research.py` → `research_service.py` |
 | Схемы | `backend/app/schemas/research.py` |
 | Выборка звонков | `backend/app/services/research_query.py` |
 | LLM cohort | `backend/app/services/llm.py` → `run_cohort_analysis` |

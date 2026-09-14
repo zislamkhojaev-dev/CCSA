@@ -1,19 +1,20 @@
 import logging
-import os
 from datetime import UTC, datetime, timedelta
 
 import httpx
 from celery import Task
 
+from app.core.errors import USER_ERROR_ANALYZE, USER_ERROR_TRANSCRIBE
+from app.core.logging import log_error
 from app.models import AnalysisResult, Call, CallStatus, Transcription
+from app.services.call_utils import duration_seconds_from_transcription
+from app.services.stt_client import stt_client
 from worker.celery_app import celery_app
 from worker.db import get_sync_session
 from worker.llm_context import prepare_llm_analysis, run_prepared_analysis
 from worker.task_lock import call_task_lock, is_locked
-from app.services.call_utils import duration_seconds_from_transcription
 
 logger = logging.getLogger(__name__)
-STT_URL = os.getenv("STT_SERVICE_URL", "http://stt-service:8001")
 
 ANALYSIS_LOCK_TTL = 1800
 TRANSCRIBE_LOCK_TTL = 3600
@@ -53,12 +54,6 @@ def _transcribe_audio(
     from worker.asr_limit import asr_concurrency_slot
     from worker.asr_settings import asr_http_timeout_sec, asr_max_parallel
 
-    payload: dict = {"storage_key": storage_key}
-    if asr_model:
-        payload["model"] = asr_model
-    if diarization_method:
-        payload["diarization_method"] = diarization_method
-
     with get_sync_session() as db:
         max_parallel = asr_max_parallel(db)
         timeout_sec = asr_http_timeout_sec(db)
@@ -68,10 +63,12 @@ def _transcribe_audio(
         acquire_timeout=min(timeout_sec + 120.0, 900.0),
         slot_ttl=timeout_sec + 180.0,
     ):
-        with httpx.Client(timeout=timeout_sec) as client:
-            r = client.post(f"{STT_URL}/transcribe", json=payload)
-            r.raise_for_status()
-            return r.json()
+        return stt_client.transcribe(
+            storage_key,
+            model=asr_model,
+            diarization_method=diarization_method,
+            timeout_sec=timeout_sec,
+        )
 
 
 @celery_app.task(name="worker.tasks.pipeline.transcribe_call", base=PipelineTask, bind=True)
@@ -116,8 +113,8 @@ def transcribe_call(self, call_id: int) -> None:
                 call.status = CallStatus.transcribed.value
                 call.error_message = None
         except Exception as e:
-            _mark_call(call_id, CallStatus.error.value, error_message=str(e)[:1000])
-            logger.exception("Transcribe failed for call %s", call_id)
+            _mark_call(call_id, CallStatus.error.value, error_message=USER_ERROR_TRANSCRIBE)
+            log_error(logger, "Transcribe failed", method="transcribe_call", params={"call_id": call_id}, exc=e)
             raise
 
     analyze_call.delay(call_id)
@@ -177,8 +174,8 @@ def analyze_call(self, call_id: int, scenario_id: int | None = None) -> None:
                 call.status = CallStatus.analyzed.value
                 call.error_message = None
         except Exception as e:
-            _mark_call(call_id, CallStatus.error.value, error_message=str(e)[:1000])
-            logger.exception("Analysis failed for call %s", call_id)
+            _mark_call(call_id, CallStatus.error.value, error_message=USER_ERROR_ANALYZE)
+            log_error(logger, "Analysis failed", method="analyze_call", params={"call_id": call_id}, exc=e)
             raise
 
 

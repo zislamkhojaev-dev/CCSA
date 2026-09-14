@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
@@ -9,6 +10,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
 from app.config import get_settings
+from app.core.retry import backoff_seconds
 from app.models import Criterion, Scenario
 from app.services.pii import prepare_text_for_llm
 from app.services.quality_settings import UNCLASSIFIED_TOPIC
@@ -24,7 +26,8 @@ class LLMUnavailableError(RuntimeError):
     """
 
 
-MAX_LLM_RETRIES = 3
+def _llm_retries() -> int:
+    return get_settings().llm_max_retries
 # Must match AnalysisResult.call_outcome column width.
 CALL_OUTCOME_MAX_LEN = 100
 COHORT_SINGLE_SHOT_MAX_CHARS = 80_000
@@ -174,7 +177,7 @@ def _call_openai(
     criteria: list[Criterion],
     topics: list[str] | None = None,
 ) -> dict[str, Any]:
-    client = OpenAI(api_key=api_key)
+    client = OpenAI(api_key=api_key, timeout=get_settings().llm_timeout_sec)
     messages = [
         {
             "role": "system",
@@ -207,7 +210,7 @@ def _call_openai(
 
 def _call_ollama(prompt: str, model: str, base_url: str) -> dict[str, Any]:
     url = base_url.rstrip("/") + "/api/chat"
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=get_settings().llm_timeout_long_sec) as client:
         r = client.post(
             url,
             json={
@@ -261,11 +264,14 @@ async def analyze_transcript(
 
     prompt = _build_prompt(scenario_copy, criteria, text, topics)
     last_error: Exception | None = None
+    retries = _llm_retries()
 
-    for attempt in range(MAX_LLM_RETRIES):
+    for attempt in range(retries):
         try:
             if prov == "local" or prov == "ollama":
-                base = ollama_base_url or await _get_setting_fallback("ollama_base_url", "http://host.docker.internal:11434")
+                base = ollama_base_url or await _get_setting_fallback(
+                    "ollama_base_url", get_settings().ollama_base_url
+                )
                 data = _call_ollama(prompt, model_name, base)
             elif prov == "gemini":
                 data = await _call_gemini(prompt, model_name, api_key)
@@ -286,12 +292,14 @@ async def analyze_transcript(
         except (json.JSONDecodeError, ValidationError, Exception) as e:
             last_error = e
             logger.warning("LLM attempt %s failed: %s", attempt + 1, e)
-            prompt = prompt + f"\n\n(Предыдущий ответ невалиден: {e}. Верни корректный JSON.)"
+            if attempt < retries - 1:
+                time.sleep(backoff_seconds(attempt))
+            prompt = prompt + "\n\n(Предыдущий ответ невалиден. Верни корректный JSON.)"
 
     logger.error("LLM failed after retries: %s", last_error)
     if strict:
-        raise LLMUnavailableError(f"LLM не вернул корректный ответ ({prov}): {last_error}")
-    return _mock_analysis(criteria, error=str(last_error), topics=topics)
+        raise LLMUnavailableError("LLM не вернул корректный ответ")
+    return _mock_analysis(criteria, error=None, topics=topics)
 
 
 MAX_TOPIC_TRANSCRIPT_CHARS = 12_000
@@ -375,8 +383,8 @@ async def _call_gemini(prompt: str, model: str, api_key: str | None) -> dict[str
     key = api_key or ""
     if not key:
         raise ValueError("Gemini API key not configured")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
-    with httpx.Client(timeout=120.0) as client:
+    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent?key={key}"
+    with httpx.Client(timeout=get_settings().llm_timeout_long_sec) as client:
         r = client.post(
             url,
             json={
@@ -392,7 +400,6 @@ async def _call_gemini(prompt: str, model: str, api_key: str | None) -> dict[str
 def _mock_analysis(
     criteria: list[Criterion], error: str | None = None, topics: list[str] | None = None
 ) -> AnalysisOutput:
-    err_hint = (error or "")[:120]
     results = {}
     total = 0
     for c in criteria:
@@ -400,13 +407,13 @@ def _mock_analysis(
         results[c.key] = CriterionResult(
             score=score,
             passed=True,
-            comment="Оценка недоступна — повторите анализ" + (f" ({err_hint})" if err_hint else ""),
+            comment="Оценка недоступна — повторите анализ",
         )
         total += int(score * c.weight_percent / 100)
     return AnalysisOutput(
         total_score=min(total, 100),
         is_violation=False,
-        summary="Анализ недоступен — проверьте ключ OpenAI и настройки LLM." + (f" {err_hint}" if err_hint else ""),
+        summary="Анализ недоступен — проверьте ключ OpenAI и настройки LLM.",
         client_pains="—",
         call_outcome="other",
         topic=UNCLASSIFIED_TOPIC,
@@ -448,9 +455,9 @@ def _call_openai_text(
     model: str,
     api_key: str,
     *,
-    timeout: float = 300.0,
+    timeout: float | None = None,
 ) -> str:
-    client = OpenAI(api_key=api_key, timeout=timeout)
+    client = OpenAI(api_key=api_key, timeout=timeout or get_settings().llm_timeout_cohort_sec)
     response = client.chat.completions.create(
         model=model,
         messages=[
@@ -464,7 +471,7 @@ def _call_openai_text(
 
 def _call_ollama_text(system: str, user: str, model: str, base_url: str) -> str:
     url = base_url.rstrip("/") + "/api/chat"
-    with httpx.Client(timeout=300.0) as client:
+    with httpx.Client(timeout=get_settings().llm_timeout_cohort_sec) as client:
         r = client.post(
             url,
             json={
@@ -484,9 +491,9 @@ def _call_gemini_text(system: str, user: str, model: str, api_key: str) -> str:
     key = api_key or ""
     if not key:
         raise ValueError("Gemini API key not configured")
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={key}"
+    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent?key={key}"
     prompt = f"{system}\n\n{user}"
-    with httpx.Client(timeout=300.0) as client:
+    with httpx.Client(timeout=get_settings().llm_timeout_cohort_sec) as client:
         r = client.post(
             url,
             json={"contents": [{"parts": [{"text": prompt}]}]},

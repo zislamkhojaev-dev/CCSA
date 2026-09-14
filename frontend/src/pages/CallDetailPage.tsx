@@ -9,6 +9,7 @@ import TranscriptList from "../components/TranscriptList";
 import { callStatusBanner, callStatusLabel, isCallProcessing } from "../utils/callStatus";
 import { exportCallTranscript } from "../utils/exportTranscript";
 import TagMultiPicker, { type TagItem } from "../components/TagMultiPicker";
+import { highlightTranscriptParts } from "../utils/highlightTranscript";
 import { sortUtterances } from "../utils/transcript";
 
 type Utterance = { speaker: string; start: number; end: number; text: string };
@@ -35,14 +36,6 @@ type CallDetail = {
   }[];
   notes: { id: number; text: string; user_name: string; created_at: string }[];
 };
-
-function highlightText(text: string) {
-  const negative = /(плохо|ужас|мат|дурак|жалоб)/gi;
-  const positive = /(спасибо|благодар|отлично|хорошо)/gi;
-  return text
-    .replace(negative, (m) => `<span class="trigger-negative">${m}</span>`)
-    .replace(positive, (m) => `<span class="trigger-positive">${m}</span>`);
-}
 
 function formatDuration(sec: number | null): string {
   if (sec == null) return "—";
@@ -121,10 +114,22 @@ export default function CallDetailPage() {
     onError: (e: Error) => setActionHint(e.message || "Не удалось запустить ASR"),
   });
 
-  const renderHighlighted = useCallback(
-    (text: string) => <span dangerouslySetInnerHTML={{ __html: highlightText(text) }} />,
-    [],
-  );
+  const renderHighlighted = useCallback((text: string) => (
+    <span>
+      {highlightTranscriptParts(text).map((part, i) =>
+        part.kind === "text" ? (
+          <span key={i}>{part.value}</span>
+        ) : (
+          <span
+            key={i}
+            className={part.kind === "neg" ? "trigger-negative" : "trigger-positive"}
+          >
+            {part.value}
+          </span>
+        ),
+      )}
+    </span>
+  ), []);
 
   const utterances = useMemo(
     () => sortUtterances((data?.transcriptions[0]?.utterances as Utterance[]) || []),

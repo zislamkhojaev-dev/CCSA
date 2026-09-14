@@ -4,8 +4,8 @@ import { api } from "../api/client";
 
 export default function LoginPage() {
   const navigate = useNavigate();
-  const [login, setLogin] = useState("admin");
-  const [password, setPassword] = useState("admin123");
+  const [login, setLogin] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
   const submit = async (e: React.FormEvent) => {

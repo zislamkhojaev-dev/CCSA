@@ -64,18 +64,117 @@ CCSA/
 
 | Модуль | Назначение |
 |--------|------------|
-| `api/auth` | Сессия, логин |
-| `api/calls` | Список звонков, карточка, теги, заметки, retranscribe/reanalyze |
-| `api/dashboard` | Сводка, метрики виджетов, layout конструктора |
-| `api/operators` | Операторы, синхронизация |
-| `api/scenarios` | Сценарии оценки и критерии |
-| `api/playground` | Тестовые сессии, загрузка файлов |
-| `api/research` | LLM метаанализ по выборке звонков |
-| `api/settings` | Модели AI, Webitel, автоматизация, пользователи |
+| `api/*` | Тонкие контроллеры FastAPI (JWT, RBAC, делегирование в сервисы) |
+| `services/*_service.py` | Домен: auth, calls, dashboard, operators, scenarios, tags, playground, research, settings |
+| `ports.py` | Protocol-порты (Webitel, Storage, STT, Redis, TaskDispatcher) |
+| `core/` | Логи, `trace_id`, `AppError` / `ErrorCode`, retry, feature flags, idempotency |
 | `services/llm.py` | Промпт, JSON Schema, провайдеры LLM, cohort-анализ (`run_cohort_analysis`) |
 | `services/research_query.py` | Выборка звонков с транскриптом для исследований |
 | `services/pii.py` | Анонимизация перед облачным LLM |
-| `services/storage.py` | MinIO upload/download |
+| `services/storage.py` | Адаптер MinIO (`StoragePort`) |
+
+## Слои backend
+
+```mermaid
+sequenceDiagram
+  participant UI as Frontend
+  participant API as API_controllers
+  participant Svc as Domain_services
+  participant Port as Ports_ACL
+  participant Ext as Webitel_LLM_STT_MinIO
+  participant DB as PostgreSQL
+  UI->>API: HTTP
+  API->>API: JWT_RBAC
+  API->>Svc: command_or_query
+  Svc->>Port: interface_call
+  Port->>Ext: adapter_http
+  Svc->>DB: ORM
+```
+
+Контроллеры в `app/api/` не содержат SQL и SDK. Бизнес-логика — `app/services/*_service.py`. Внешние системы — порты в `app/ports.py` и адаптеры (`webitel.py`, `storage.py`, `stt_client.py`, `llm.py`).
+
+## Auth
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant API
+  participant AuthService
+  participant DB
+  Browser->>API: POST /auth/login
+  API->>AuthService: login
+  AuthService->>DB: find user
+  AuthService->>AuthService: verify_password
+  AuthService-->>Browser: Set-Cookie httponly JWT
+```
+
+## Webitel sync
+
+```mermaid
+sequenceDiagram
+  participant Beat as celery_beat
+  participant Task as sync_webitel_calls
+  participant Flags as feature_flags
+  participant Webitel as WebitelPort
+  participant DB as PostgreSQL
+  participant STT as transcribe_call
+  Beat->>Task: schedule
+  Task->>Flags: webitel_sync enabled
+  Task->>Webitel: fetch_call_history
+  Webitel-->>Task: items
+  Task->>DB: upsert Call
+  Task->>STT: delay transcribe
+```
+
+## Call export SSE
+
+```mermaid
+sequenceDiagram
+  participant UI
+  participant API
+  participant CallService
+  participant Celery
+  participant Redis
+  UI->>API: POST /calls/export/jobs
+  API->>CallService: create job
+  CallService->>Celery: run_calls_export
+  UI->>API: GET /export/jobs/id/events
+  Celery->>Redis: publish progress
+  Redis-->>UI: SSE status
+```
+
+## Playground run
+
+```mermaid
+sequenceDiagram
+  participant UI
+  participant API
+  participant PlaygroundService
+  participant Storage as StoragePort
+  participant Celery
+  UI->>API: POST /playground/jobs
+  UI->>API: POST upload
+  API->>PlaygroundService: upload_files
+  PlaygroundService->>Storage: upload_bytes
+  UI->>API: POST run
+  PlaygroundService->>Celery: process_playground_file
+```
+
+## Dashboard widgets
+
+```mermaid
+sequenceDiagram
+  participant UI
+  participant API
+  participant DashboardService
+  participant Metrics as dashboard_metrics
+  participant DB
+  UI->>API: GET /dashboard/layout
+  API->>DashboardService: load_user_widgets
+  UI->>API: POST /metrics/batch
+  API->>Metrics: fetch_widget_metric
+  Metrics->>DB: aggregations
+```
 
 ## Worker (`worker/`)
 
@@ -100,11 +199,11 @@ CCSA/
 
 ## STT (`stt/`)
 
-Отдельный FastAPI-процесс на порту 8001.
+Отдельный FastAPI-процесс внутри docker-сети (порт 8001 не публикуется на хост).
 
 - Движки: **faster-whisper (CT2)** или **transformers** pipeline
 - Диаризация: `stereo_channels` (левый/правый канал), `pyannote`, `mono`
-- Endpoint: `POST /transcribe` — один файл (`storage_key` в MinIO)
+- Endpoint: `POST /transcribe` — `storage_key` в MinIO, заголовок `X-STT-Token`
 
 ## Frontend
 
@@ -121,4 +220,6 @@ CCSA/
 - Пароли: bcrypt
 - Секреты настроек: Fernet (`SETTINGS_ENCRYPTION_KEY`)
 - Сессии через cookie (см. `api/auth`)
-- Роли: admin / supervisor (настройки — admin)
+- Роли: admin / supervisor. Destructive операции (bulk-delete, delete scenario/research, operator sync, retranscribe/reanalyze) — admin
+- Ошибки: [error-codes.md](error-codes.md)
+- Production: обязательны `SECRET_KEY`, `SETTINGS_ENCRYPTION_KEY`, `SEED_ADMIN_PASSWORD`, `CORS_ORIGINS` (без dev-дефолтов)
