@@ -134,7 +134,8 @@ docker compose logs celery-worker --tail 30 | grep -A 15 "\[tasks\]"
 ## Pyannote не работает
 
 - Нужен `HF_TOKEN` в `.env`
-- Принять лицензии моделей pyannote на Hugging Face
+- Принять лицензию `pyannote/speaker-diarization-community-1` на Hugging Face
+- Стерео-записи оставляйте на `stereo_channels`: каналы точнее, чем pyannote
 - Без токена — fallback на `stereo_channels` или `mono`
 
 ---

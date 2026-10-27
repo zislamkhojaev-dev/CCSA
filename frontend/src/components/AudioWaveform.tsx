@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import WaveSurfer from "wavesurfer.js";
-import { sortUtterances } from "../utils/transcript";
+import { sortUtterances, type Utterance } from "../utils/transcript";
 
 type Props = {
   audioUrl: string | null;
-  utterances?: { speaker: string; start: number; end: number; text?: string }[];
+  utterances?: Utterance[];
   onSeek?: (time: number) => void;
   onRegisterSeek?: (seek: (time: number) => void) => void;
   height?: number;

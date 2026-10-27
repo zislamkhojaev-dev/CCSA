@@ -16,7 +16,6 @@ const WEEKDAYS = [
 const ASR_MODELS = [
   "OvozifyLabs/whisper-small-uz-v1",
   "Jonibek21/Zehnova-Uzbek-STT",
-  "zafarrr/uzbek-stt-fastconformer-v1.2",
 ];
 
 const DIARIZATION_METHODS = [
@@ -133,7 +132,7 @@ function ModelsTab() {
             ))}
           </select>
           <p className="form-hint">
-            Pyannote требует HF_TOKEN и лицензии на pyannote/speaker-diarization-3.1. Без токена — fallback на стерео-каналы или моно.
+            Для стерео оставьте каналы: левый — клиент, правый — оператор. Pyannote нужен для моно и использует локальную pyannote/speaker-diarization-community-1: требуются HF_TOKEN и принятая лицензия. Без токена запрос уходит в стерео-каналы или моно.
           </p>
         </div>
       )}
@@ -246,7 +245,6 @@ function ModelsTab() {
 }
 
 function WebitelTab() {
-  const qc = useQueryClient();
   const { data, refetch } = useQuery({
     queryKey: ["settings-webitel"],
     queryFn: () => api.get<{ api_url: string; sync_cron: string; sync_days: number[]; sync_time_from: string; sync_time_to: string }>("/settings/webitel"),

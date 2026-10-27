@@ -15,9 +15,13 @@ target_metadata = Base.metadata
 
 
 def get_url() -> str:
-    return os.getenv(
-        "DATABASE_URL_SYNC",
-        "postgresql://ccsa:ccsa_secret@postgres:5432/ccsa",
+    from app.database import with_psycopg2_driver
+
+    return with_psycopg2_driver(
+        os.getenv(
+            "DATABASE_URL_SYNC",
+            "postgresql+psycopg2://ccsa:ccsa_secret@postgres:5432/ccsa",
+        )
     )
 
 

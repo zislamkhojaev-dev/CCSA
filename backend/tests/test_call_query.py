@@ -32,3 +32,8 @@ def test_build_count_query_compiles():
     q = build_calls_count_query(client_match="eq", client_value="+99890")
     assert q is not None
     assert "99890" in str(q) or "client" in str(q).lower()
+
+
+def test_build_count_query_ignores_sort_kwargs():
+    q = build_calls_count_query(sort_by="call_timestamp", sort_order="desc")
+    assert q is not None

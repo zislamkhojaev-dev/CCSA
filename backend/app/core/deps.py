@@ -17,10 +17,14 @@ async def get_current_user(
     payload = decode_token(access_token)
     if not payload or payload.get("type") != "access":
         raise AppError.unauthorized("Invalid token")
-    login = payload.get("sub")
+    subject = payload.get("sub")
+    try:
+        user_id = int(subject)
+    except (TypeError, ValueError):
+        raise AppError.unauthorized("Invalid token")
     from sqlalchemy import select
 
-    result = await db.execute(select(User).where(User.login == login, User.is_active.is_(True)))
+    result = await db.execute(select(User).where(User.id == user_id, User.is_active.is_(True)))
     user = result.scalar_one_or_none()
     if not user:
         raise AppError.unauthorized("User not found")

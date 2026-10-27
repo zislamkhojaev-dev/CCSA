@@ -20,6 +20,23 @@ def test_parse_date_invalid():
     assert parse_date("not-a-date") is None
 
 
+@pytest.mark.asyncio
+async def test_list_calls_accepts_sort_params():
+    from app.services.call_service import call_service
+
+    db = AsyncMock()
+    db.scalar = AsyncMock(return_value=0)
+    result = MagicMock()
+    result.scalars.return_value.unique.return_value.all.return_value = []
+    db.execute = AsyncMock(return_value=result)
+    out = await call_service.list_calls(
+        db, page=1, page_size=20, sort_by="call_timestamp", sort_order="desc"
+    )
+    assert out.total == 0
+    assert out.items == []
+    assert out.page == 1
+
+
 def test_feature_env_override(monkeypatch):
     monkeypatch.setenv("FEATURE_RESEARCH", "false")
     assert _env_override("research") is False

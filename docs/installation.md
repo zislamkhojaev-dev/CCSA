@@ -26,7 +26,7 @@ make init
 | Логин | `SEED_ADMIN_LOGIN` | `admin` |
 | Пароль | `SEED_ADMIN_PASSWORD` | `admin123` |
 
-В `APP_ENV=production` дефолтный пароль `admin123` запрещён — задайте свой `SEED_ADMIN_PASSWORD`. После обновления кода примените миграции: `make migrate` (нужна ревизия `008_idempotency_keys`). Подробности: [changelog.md](changelog.md).
+В `APP_ENV=production` дефолтный пароль `admin123` запрещён — задайте свой `SEED_ADMIN_PASSWORD`. `docker compose up` применяет миграции один раз в сервисе `migrate` (сейчас голова — `009`). Повторно: `make migrate`. Подробности: [changelog.md](changelog.md).
 
 ## Команды Makefile
 
@@ -36,7 +36,7 @@ make init
 | `make down` | Остановить |
 | `make build` | Пересобрать образы |
 | `make logs` | Логи всех сервисов |
-| `make migrate` | `alembic upgrade head` |
+| `make migrate` | `alembic upgrade head` в уже запущенном `api` |
 | `make seed` | Начальные данные |
 | `make test` | pytest API в контейнере `api` |
 | `make gpu-up` | STT с GPU (overlay compose) |

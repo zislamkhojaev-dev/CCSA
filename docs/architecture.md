@@ -202,7 +202,7 @@ sequenceDiagram
 Отдельный FastAPI-процесс внутри docker-сети (порт 8001 не публикуется на хост).
 
 - Движки: **faster-whisper (CT2)** или **transformers** pipeline
-- Диаризация: `stereo_channels` (левый/правый канал), `pyannote`, `mono`
+- Диаризация: `stereo_channels` (левый/правый канал, основной режим), `pyannote` (моно, `pyannote/speaker-diarization-community-1`), `mono`
 - Endpoint: `POST /transcribe` — `storage_key` в MinIO, заголовок `X-STT-Token`
 
 ## Frontend

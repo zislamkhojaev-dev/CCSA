@@ -91,7 +91,10 @@ def _load_pyannote_pipeline() -> Any:
         _diarization_load_error = "HF_TOKEN is required for pyannote diarization"
         raise RuntimeError(_diarization_load_error)
 
-    model_id = os.getenv("STT_PYANNOTE_MODEL", "pyannote/speaker-diarization-3.1")
+    model_id = os.getenv(
+        "STT_PYANNOTE_MODEL",
+        "pyannote/speaker-diarization-community-1",
+    )
     try:
         from pyannote.audio import Pipeline
 
@@ -120,11 +123,12 @@ def run_pyannote_diarization(audio_path: str) -> list[DiarSegment]:
 
     min_speakers = int(os.getenv("STT_DIARIZATION_MIN_SPEAKERS", "2"))
     max_speakers = int(os.getenv("STT_DIARIZATION_MAX_SPEAKERS", "2"))
-    diarization = pipeline(
+    output = pipeline(
         audio_path,
         min_speakers=min_speakers,
         max_speakers=max_speakers,
     )
+    diarization = getattr(output, "speaker_diarization", output)
 
     segments: list[DiarSegment] = []
     for turn, _track, speaker in diarization.itertracks(yield_label=True):

@@ -1,3 +1,5 @@
+from collections.abc import Awaitable, Callable
+
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -97,7 +99,13 @@ class ResearchService:
         count = await db.scalar(build_research_count_query(**kw)) or 0
         return ResearchPreviewOut(count=count, max_calls=research_max_calls())
 
-    async def create(self, db: AsyncSession, user: User, body: ResearchCreateIn) -> ResearchDetailOut:
+    async def create(
+        self,
+        db: AsyncSession,
+        user: User,
+        body: ResearchCreateIn,
+        before_commit: Callable[[ResearchDetailOut], Awaitable[None]] | None = None,
+    ) -> ResearchDetailOut:
         kw = filters_to_query_kwargs(body.filters)
         max_calls = research_max_calls()
         count = await db.scalar(build_research_count_query(**kw)) or 0
@@ -124,9 +132,12 @@ class ResearchService:
             select(ResearchStudy).where(ResearchStudy.id == study.id).options(selectinload(ResearchStudy.user))
         )
         study = loaded.scalar_one()
+        out = _detail_out(study)
+        if before_commit is not None:
+            await before_commit(out)
         await db.commit()
         task_dispatcher.run_research_study(study.id)
-        return _detail_out(study)
+        return out
 
     async def get(self, db: AsyncSession, study_id: int, user: User) -> ResearchStudy:
         study = await db.get(ResearchStudy, study_id, options=[selectinload(ResearchStudy.user)])

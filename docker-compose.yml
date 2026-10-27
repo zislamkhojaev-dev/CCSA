@@ -53,6 +53,23 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-ccsa_minio_secret}
       MINIO_BUCKET: ${MINIO_BUCKET:-ccsa-audio}
 
+  migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    environment:
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
+    volumes:
+      - ./backend:/app
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: ./backend
@@ -60,8 +77,9 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     env_file: .env
     environment:
+      RUN_MIGRATIONS: "0"
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
-      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
       REDIS_URL: redis://redis:6379/0
       MINIO_ENDPOINT: minio:9000
       STT_SERVICE_URL: http://stt-service:8001
@@ -69,6 +87,8 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:
@@ -76,9 +96,9 @@ services:
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/ready"]
+      interval: 15s
+      timeout: 10s
       retries: 10
       start_period: 30s
 
@@ -89,7 +109,8 @@ services:
     command: celery -A worker.celery_app worker --loglevel=info -Q llm,io --concurrency=${CELERY_LLM_CONCURRENCY:-2} --hostname=llm@%h
     env_file: .env
     environment: &celery-env
-      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
       REDIS_URL: redis://redis:6379/0
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/1
@@ -99,10 +120,14 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      - api
-      - redis
-      - postgres
-      - stt-service
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      stt-service:
+        condition: service_started
 
   celery-worker-stt:
     build:
@@ -114,10 +139,14 @@ services:
     volumes:
       - ./backend:/app
     depends_on:
-      - api
-      - redis
-      - postgres
-      - stt-service
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      stt-service:
+        condition: service_started
 
   celery-beat:
     build:
@@ -126,7 +155,8 @@ services:
     command: celery -A worker.celery_app beat --loglevel=info
     env_file: .env
     environment:
-      DATABASE_URL_SYNC: postgresql://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
+      RUN_MIGRATIONS: "0"
+      DATABASE_URL_SYNC: postgresql+psycopg2://${POSTGRES_USER:-ccsa}:${POSTGRES_PASSWORD:-ccsa_secret}@postgres:5432/${POSTGRES_DB:-ccsa}
       CELERY_BROKER_URL: redis://redis:6379/0
     volumes:
       - ./backend:/app

@@ -63,12 +63,6 @@ type Scenario = {
   criteria: ApiCriterion[];
 };
 
-const ASR_MODELS = [
-  "OvozifyLabs/whisper-small-uz-v1",
-  "Jonibek21/Zehnova-Uzbek-STT",
-  "zafarrr/uzbek-stt-fastconformer-v1.2",
-];
-
 const LLM_MODELS = ["gpt-4o-mini", "gpt-4o", "gemini-1.5-flash", "qwen3.5:4b"];
 
 const emptyCriterion = (): Criterion => ({

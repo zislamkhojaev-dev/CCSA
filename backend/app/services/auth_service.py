@@ -29,8 +29,8 @@ class AuthService:
             raise AppError(ErrorCode.AUTH_INACTIVE, "User inactive", 403)
 
         settings = get_settings()
-        access = create_access_token(user.login)
-        refresh = create_refresh_token(user.login)
+        access = create_access_token(user.id)
+        refresh = create_refresh_token(user.id)
         response.set_cookie("access_token", access, **cookie_kwargs(max_age=settings.cookie_access_max_age))
         response.set_cookie(
             "refresh_token", refresh, **cookie_kwargs(max_age=settings.cookie_refresh_max_age)

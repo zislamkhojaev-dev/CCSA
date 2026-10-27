@@ -140,6 +140,7 @@ def build_calls_count_query(
     score_op: str | None = None,
     score_value: int | None = None,
     tag_id: int | None = None,
+    **_ignored,
 ) -> Select:
     q = select(func.count(func.distinct(Call.id))).select_from(Call).outerjoin(
         Operator, Call.operator_id == Operator.id

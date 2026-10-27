@@ -41,7 +41,6 @@ _last_load_error: str | None = None
 ASR_MODEL_ALIASES: dict[str, str] = {
     "OvozifyLabs/whisper-small-uz-v1": DEFAULT_UZ_HF_ID,
     "Jonibek21/Zehnova-Uzbek-STT": "Jonibek21/Zehnova-Uzbek-STT",
-    "zafarrr/uzbek-stt-fastconformer-v1.2": "Systran/faster-whisper-small",
 }
 
 CT2_MODEL_PREFIXES = ("Systran/faster-whisper",)

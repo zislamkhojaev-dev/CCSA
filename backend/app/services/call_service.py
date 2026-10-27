@@ -1,3 +1,4 @@
+from collections.abc import Awaitable, Callable
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -61,9 +62,18 @@ class CallService:
     def __init__(self, storage: StoragePort | None = None) -> None:
         self._storage = storage or storage_service
 
-    async def list_calls(self, db: AsyncSession, *, page: int, page_size: int, **filter_kw) -> Paginated[CallListItem]:
+    async def list_calls(
+        self,
+        db: AsyncSession,
+        *,
+        page: int,
+        page_size: int,
+        sort_by: str = "call_timestamp",
+        sort_order: str = "desc",
+        **filter_kw,
+    ) -> Paginated[CallListItem]:
         total = await db.scalar(build_calls_count_query(**filter_kw)) or 0
-        q = build_calls_list_query(**filter_kw)
+        q = build_calls_list_query(**filter_kw, sort_by=sort_by, sort_order=sort_order)
         result = await db.execute(q.offset((page - 1) * page_size).limit(page_size))
         calls = result.scalars().unique().all()
 
@@ -138,7 +148,13 @@ class CallService:
             raise AppError.not_found("Звонки не найдены")
         return rows
 
-    async def create_export_job(self, db: AsyncSession, user: User, body) -> CallExportJobOut:
+    async def create_export_job(
+        self,
+        db: AsyncSession,
+        user: User,
+        body,
+        before_commit: Callable[[CallExportJobOut], Awaitable[None]] | None = None,
+    ) -> CallExportJobOut:
         total = await count_export_rows_async(db, body.filters)
         if total == 0:
             raise AppError.invalid("По выбранным фильтрам звонков нет")
@@ -155,9 +171,7 @@ class CallService:
         db.add(job)
         await db.flush()
         await db.refresh(job)
-        await db.commit()
-        task_dispatcher.run_calls_export(job.id)
-        return CallExportJobOut(
+        out = CallExportJobOut(
             id=job.id,
             format=job.format,
             status=job.status,
@@ -165,6 +179,11 @@ class CallService:
             row_count=0,
             created_at=job.created_at,
         )
+        if before_commit is not None:
+            await before_commit(out)
+        await db.commit()
+        task_dispatcher.run_calls_export(job.id)
+        return out
 
     async def get_owned_export_job(self, db: AsyncSession, job_id: int, user: User) -> CallExportJob:
         job = await db.get(CallExportJob, job_id)

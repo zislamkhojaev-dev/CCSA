@@ -112,7 +112,7 @@ def prepare_llm_analysis(db, call, scenario_id: int | None = None) -> PreparedLL
     )
 
 
-def run_prepared_analysis(prepared: PreparedLLMAnalysis, *, strict: bool = False):
+def run_prepared_analysis(prepared: PreparedLLMAnalysis, *, strict: bool = True):
     import asyncio
 
     return asyncio.run(
@@ -128,6 +128,6 @@ def run_prepared_analysis(prepared: PreparedLLMAnalysis, *, strict: bool = False
     )
 
 
-def run_llm_analysis(db, call, scenario_id: int | None = None, *, strict: bool = False):
+def run_llm_analysis(db, call, scenario_id: int | None = None, *, strict: bool = True):
     """Load + run in the current session. Prefer prepare + run_prepared_analysis in workers."""
     return run_prepared_analysis(prepare_llm_analysis(db, call, scenario_id), strict=strict)

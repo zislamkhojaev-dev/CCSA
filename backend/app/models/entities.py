@@ -303,6 +303,7 @@ class IdempotencyKey(Base):
     request_hash: Mapped[str] = mapped_column(String(64))
     status_code: Mapped[int] = mapped_column(Integer)
     response_json: Mapped[dict | list | None] = mapped_column(JSONB, nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="completed", server_default="completed")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship()

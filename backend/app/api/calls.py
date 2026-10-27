@@ -128,19 +128,21 @@ async def create_call_export_job(
     )
     if replay.replay:
         return CallExportJobOut(**replay.payload)
-    out = await call_service.create_export_job(db, user, body)
-    if idem_key:
-        await store_idempotency(
-            db,
-            user_id=user.id,
-            key=idem_key,
-            method="POST",
-            path="/calls/export/jobs",
-            body=body.model_dump(),
-            status_code=200,
-            payload=out.model_dump(mode="json"),
-        )
-    return out
+
+    async def _store(out):
+        if idem_key:
+            await store_idempotency(
+                db,
+                user_id=user.id,
+                key=idem_key,
+                method="POST",
+                path="/calls/export/jobs",
+                body=body.model_dump(),
+                status_code=200,
+                payload=out.model_dump(mode="json"),
+            )
+
+    return await call_service.create_export_job(db, user, body, before_commit=_store)
 
 
 @router.get("/export/jobs/{job_id}", response_model=CallExportJobOut)

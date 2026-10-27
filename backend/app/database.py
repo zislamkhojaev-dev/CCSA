@@ -12,6 +12,18 @@ logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
+
+def with_psycopg2_driver(url: str) -> str:
+    """SQLAlchemy 2.1 reads a bare postgresql:// URL as psycopg 3."""
+    if url.startswith("postgresql+"):
+        return url
+    if url.startswith("postgresql://"):
+        return "postgresql+psycopg2://" + url.removeprefix("postgresql://")
+    if url.startswith("postgres://"):
+        return "postgresql+psycopg2://" + url.removeprefix("postgres://")
+    return url
+
+
 async_engine = create_async_engine(
     settings.database_url,
     echo=settings.app_env == "development",
@@ -24,7 +36,7 @@ async_engine = create_async_engine(
 AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
 sync_engine = create_engine(
-    settings.database_url_sync,
+    with_psycopg2_driver(settings.database_url_sync),
     pool_pre_ping=True,
     pool_timeout=settings.db_pool_timeout,
     connect_args={

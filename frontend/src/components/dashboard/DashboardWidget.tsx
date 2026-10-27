@@ -42,8 +42,8 @@ type Props = {
   metricData?: WidgetMetricData;
   metricLoading?: boolean;
   dragHandleProps?: {
-    attributes: Record<string, unknown>;
-    listeners: Record<string, unknown> | undefined;
+    attributes: object;
+    listeners: object | undefined;
   };
 };
 

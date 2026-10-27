@@ -50,6 +50,7 @@
 | `STT_INITIAL_PROMPT` | — | Словарь КЦ для Whisper (бренды, типичные фразы) |
 | `STT_CLIENT_CHANNEL` | `left` | Канал клиента в стерео (`left` / `right`) |
 | `HF_TOKEN` | — | Для Pyannote (Hugging Face) |
+| `STT_PYANNOTE_MODEL` | `pyannote/speaker-diarization-community-1` | Модель mono-диаризации; стерео-каналы остаются приоритетными |
 | `STT_SERVICE_TOKEN` | — | Shared secret API → STT (`X-STT-Token`); обязателен в production |
 
 Полный список STT-переменных — в `backend/stt/main.py` (`STT_BEAM_SIZE`, `STT_VAD_FILTER`, …).
@@ -60,6 +61,9 @@
 |------------|----------|
 | `OPENAI_API_KEY` | OpenAI |
 | `OPENAI_MODEL` | Модель по умолчанию |
+
+OpenAI вызывается через Responses API со строгим JSON Schema и `store=false`.
+Неизвестные значения провайдера отклоняются до обработки транскрипта.
 
 Дополнительные ключи (Gemini, Ollama) задаются в **Настройки → Модели и AI** (хранятся в БД в зашифрованном виде).
 
@@ -93,6 +97,17 @@
 | `STT_SERVICE_TOKEN` | Shared secret API → STT (`X-STT-Token`) |
 
 Таймауты и лимиты (опционально, есть дефолты): `LLM_TIMEOUT_SEC`, `WEBITEL_TIMEOUT_SEC`, `DB_STATEMENT_TIMEOUT_MS`, `DB_POOL_TIMEOUT`.
+
+### Загрузки и готовность
+
+| Переменная | По умолчанию | Описание |
+|------------|--------------|----------|
+| `UPLOAD_MAX_FILES` | `20` | Сколько файлов принимает один запрос плейграунда |
+| `UPLOAD_MAX_BYTES` | `26214400` | Максимальный размер одного файла |
+| `IDEMPOTENCY_PENDING_SECONDS` | `120` | Через сколько можно повторить зависший `Idempotency-Key` |
+| `READINESS_TIMEOUT_SEC` | `2` | Таймаут проверки Postgres, Redis и MinIO в `GET /ready` |
+
+`GET /health` — процесс жив. `GET /ready` — Postgres, Redis и бакет MinIO отвечают. В compose миграции выполняет только сервис `migrate`; API, worker и beat стартуют с `RUN_MIGRATIONS=0`.
 
 ### Feature toggles
 

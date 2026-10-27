@@ -23,7 +23,7 @@ class Settings(BaseSettings):
     )
 
     database_url: str = "postgresql+asyncpg://ccsa:ccsa_secret@postgres:5432/ccsa"
-    database_url_sync: str = "postgresql://ccsa:ccsa_secret@postgres:5432/ccsa"
+    database_url_sync: str = "postgresql+psycopg2://ccsa:ccsa_secret@postgres:5432/ccsa"
     db_pool_timeout: int = 30
     db_connect_timeout: int = 10
     db_statement_timeout_ms: int = 30000
@@ -65,6 +65,8 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     cookie_access_max_age: int = 3600
     cookie_refresh_max_age: int = 604800
+    jwt_issuer: str = "ccsa"
+    jwt_audience: str = "ccsa-web"
 
     cors_origins: str = ""
     log_level: str = "INFO"
@@ -75,6 +77,11 @@ class Settings(BaseSettings):
     research_max_calls: int = 200
     filter_options_limit: int = 500
     idempotency_ttl_hours: int = 24
+    idempotency_pending_seconds: int = 120
+    upload_max_files: int = 20
+    upload_max_bytes: int = 26_214_400
+    upload_read_chunk_bytes: int = 1_048_576
+    readiness_timeout_sec: float = 2.0
 
     feature_research: bool = True
     feature_playground: bool = True

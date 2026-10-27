@@ -1,6 +1,6 @@
 import json
 import logging
-import time
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable
@@ -92,22 +92,23 @@ def normalize_topic(raw: str | None, topics: list[str] | None) -> str:
     return UNCLASSIFIED_TOPIC
 
 
-_CRITERION_RESULT_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "score": {"type": "integer"},
-        "passed": {"type": "boolean"},
-        "comment": {"type": "string"},
-        "status": {"type": "string", "enum": ["completed", "not_applicable"]},
-    },
-    "required": ["score", "passed", "comment", "status"],
-    "additionalProperties": False,
-}
+def _criterion_result_schema(criterion: Criterion) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "score": {"type": "integer", "minimum": 0, "maximum": criterion.max_score},
+            "passed": {"type": "boolean"},
+            "comment": {"type": "string"},
+            "status": {"type": "string", "enum": ["completed", "not_applicable"]},
+        },
+        "required": ["score", "passed", "comment", "status"],
+        "additionalProperties": False,
+    }
 
 
 def _analysis_json_schema(criteria: list[Criterion], topics: list[str] | None = None) -> dict[str, Any]:
     """JSON Schema for OpenAI strict structured output (all objects need additionalProperties: false)."""
-    criterion_props = {c.key: _CRITERION_RESULT_SCHEMA for c in criteria}
+    criterion_props = {c.key: _criterion_result_schema(c) for c in criteria}
     topic_schema: dict[str, Any] = {"type": "string"}
     allowed = _allowed_topics(topics)
     if allowed:
@@ -186,25 +187,20 @@ def _call_openai(
         {"role": "user", "content": prompt},
     ]
     schema = _analysis_json_schema(criteria, topics)
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            response_format={
+    response = client.responses.create(
+        model=model,
+        input=messages,
+        text={
+            "format": {
                 "type": "json_schema",
-                "json_schema": {"name": "call_analysis", "strict": True, "schema": schema},
+                "name": "call_analysis",
+                "strict": True,
+                "schema": schema,
             },
-            temperature=0.2,
-        )
-    except Exception as schema_err:
-        logger.warning("OpenAI json_schema failed, fallback to json_object: %s", schema_err)
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=0.2,
-        )
-    raw = response.choices[0].message.content or "{}"
+        },
+        store=False,
+    )
+    raw = response.output_text or "{}"
     return json.loads(raw)
 
 
@@ -240,7 +236,7 @@ async def analyze_transcript(
     ollama_base_url: str | None = None,
     custom_system_prompt: str | None = None,
     topics: list[str] | None = None,
-    strict: bool = False,
+    strict: bool = True,
 ) -> AnalysisOutput:
     settings = get_settings()
     prov = (provider or "openai").lower()
@@ -278,13 +274,12 @@ async def analyze_transcript(
             else:
                 key = api_key or settings.openai_api_key
                 if not key:
-                    if strict:
-                        raise LLMUnavailableError(
-                            "Не задан ключ OpenAI — укажите его в «Настройки → Модели и AI»"
-                        )
-                    return _mock_analysis(criteria, topics=topics)
+                    raise LLMUnavailableError(
+                        "Не задан ключ OpenAI — укажите его в «Настройки → Модели и AI»"
+                    )
                 data = _call_openai(prompt, model_name, key, criteria, topics)
             output = AnalysisOutput.model_validate(data)
+            _validate_and_finalize_analysis(output, criteria)
             output.topic = normalize_topic(output.topic, topics)
             return output
         except LLMUnavailableError:
@@ -293,13 +288,35 @@ async def analyze_transcript(
             last_error = e
             logger.warning("LLM attempt %s failed: %s", attempt + 1, e)
             if attempt < retries - 1:
-                time.sleep(backoff_seconds(attempt))
+                await asyncio.sleep(backoff_seconds(attempt))
             prompt = prompt + "\n\n(Предыдущий ответ невалиден. Верни корректный JSON.)"
 
     logger.error("LLM failed after retries: %s", last_error)
-    if strict:
-        raise LLMUnavailableError("LLM не вернул корректный ответ")
-    return _mock_analysis(criteria, error=None, topics=topics)
+    raise LLMUnavailableError("LLM не вернул корректный ответ")
+
+
+def _validate_and_finalize_analysis(
+    output: AnalysisOutput, criteria: list[Criterion]
+) -> None:
+    expected = {criterion.key for criterion in criteria}
+    actual = set(output.criteria_results)
+    if actual != expected:
+        raise ValueError("LLM response criteria do not match the scenario")
+
+    weighted_total = 0.0
+    for criterion in criteria:
+        result = output.criteria_results[criterion.key]
+        if result.score < 0 or result.score > criterion.max_score:
+            raise ValueError(f"Criterion {criterion.key} score is out of range")
+        if result.status == "not_applicable":
+            result.score = 0
+            result.passed = False
+            continue
+        if criterion.max_score > 0:
+            weighted_total += (
+                result.score / criterion.max_score * criterion.weight_percent
+            )
+    output.total_score = min(100, max(0, round(weighted_total)))
 
 
 MAX_TOPIC_TRANSCRIPT_CHARS = 12_000
@@ -307,16 +324,28 @@ MAX_TOPIC_TRANSCRIPT_CHARS = 12_000
 
 def _classify_topic_openai(prompt: str, model: str, api_key: str, topics: list[str]) -> str:
     client = OpenAI(api_key=api_key, timeout=45.0)
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=model,
-        messages=[
+        input=[
             {"role": "system", "content": "Ты классифицируешь звонки колл-центра по теме. Отвечай строго JSON."},
             {"role": "user", "content": prompt},
         ],
-        response_format={"type": "json_object"},
-        temperature=0,
+        text={
+            "format": {
+                "type": "json_schema",
+                "name": "topic_classification",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "properties": {"topic": {"type": "string", "enum": _allowed_topics(topics)}},
+                    "required": ["topic"],
+                    "additionalProperties": False,
+                },
+            }
+        },
+        store=False,
     )
-    raw = response.choices[0].message.content or "{}"
+    raw = response.output_text or "{}"
     return json.loads(raw).get("topic", "")
 
 
@@ -383,10 +412,11 @@ async def _call_gemini(prompt: str, model: str, api_key: str | None) -> dict[str
     key = api_key or ""
     if not key:
         raise ValueError("Gemini API key not configured")
-    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent?key={key}"
+    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent"
     with httpx.Client(timeout=get_settings().llm_timeout_long_sec) as client:
         r = client.post(
             url,
+            headers={"x-goog-api-key": key},
             json={
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"responseMimeType": "application/json"},
@@ -395,30 +425,6 @@ async def _call_gemini(prompt: str, model: str, api_key: str | None) -> dict[str
         r.raise_for_status()
         text = r.json()["candidates"][0]["content"]["parts"][0]["text"]
         return json.loads(text)
-
-
-def _mock_analysis(
-    criteria: list[Criterion], error: str | None = None, topics: list[str] | None = None
-) -> AnalysisOutput:
-    results = {}
-    total = 0
-    for c in criteria:
-        score = c.max_score
-        results[c.key] = CriterionResult(
-            score=score,
-            passed=True,
-            comment="Оценка недоступна — повторите анализ",
-        )
-        total += int(score * c.weight_percent / 100)
-    return AnalysisOutput(
-        total_score=min(total, 100),
-        is_violation=False,
-        summary="Анализ недоступен — проверьте ключ OpenAI и настройки LLM.",
-        client_pains="—",
-        call_outcome="other",
-        topic=UNCLASSIFIED_TOPIC,
-        criteria_results=results,
-    )
 
 
 def _format_call_block(call: CohortCall, text: str) -> str:
@@ -458,15 +464,15 @@ def _call_openai_text(
     timeout: float | None = None,
 ) -> str:
     client = OpenAI(api_key=api_key, timeout=timeout or get_settings().llm_timeout_cohort_sec)
-    response = client.chat.completions.create(
+    response = client.responses.create(
         model=model,
-        messages=[
+        input=[
             {"role": "system", "content": system},
             {"role": "user", "content": user},
         ],
-        temperature=0.3,
+        store=False,
     )
-    return (response.choices[0].message.content or "").strip()
+    return (response.output_text or "").strip()
 
 
 def _call_ollama_text(system: str, user: str, model: str, base_url: str) -> str:
@@ -491,11 +497,12 @@ def _call_gemini_text(system: str, user: str, model: str, api_key: str) -> str:
     key = api_key or ""
     if not key:
         raise ValueError("Gemini API key not configured")
-    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent?key={key}"
+    url = f"{get_settings().gemini_api_url.rstrip('/')}/models/{model}:generateContent"
     prompt = f"{system}\n\n{user}"
     with httpx.Client(timeout=get_settings().llm_timeout_cohort_sec) as client:
         r = client.post(
             url,
+            headers={"x-goog-api-key": key},
             json={"contents": [{"parts": [{"text": prompt}]}]},
         )
         r.raise_for_status()

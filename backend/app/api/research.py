@@ -69,19 +69,21 @@ async def create_research(
     )
     if replay.replay:
         return ResearchDetailOut(**replay.payload)
-    out = await research_service.create(db, user, body)
-    if idem_key:
-        await store_idempotency(
-            db,
-            user_id=user.id,
-            key=idem_key,
-            method="POST",
-            path="/research",
-            body=body.model_dump(),
-            status_code=201,
-            payload=out.model_dump(mode="json"),
-        )
-    return out
+
+    async def _store(out):
+        if idem_key:
+            await store_idempotency(
+                db,
+                user_id=user.id,
+                key=idem_key,
+                method="POST",
+                path="/research",
+                body=body.model_dump(),
+                status_code=201,
+                payload=out.model_dump(mode="json"),
+            )
+
+    return await research_service.create(db, user, body, before_commit=_store)
 
 
 @router.get("/{study_id}", response_model=ResearchDetailOut)

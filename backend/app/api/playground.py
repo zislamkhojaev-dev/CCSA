@@ -14,6 +14,7 @@ from app.services.audio_stream import stream_audio
 from app.services.feature_flags import require_feature
 from app.services.idempotency import begin_idempotency, idempotency_key_header, store_idempotency
 from app.services.playground_service import playground_service
+from app.services.uploads import read_bounded_uploads
 from app.services.redis_events import subscribe_playground_events
 
 router = APIRouter()
@@ -55,7 +56,7 @@ async def upload_files(
     user: User = Depends(get_current_user),
 ):
     await require_feature(db, "playground")
-    payloads = [(upload.filename or "audio.mp3", await upload.read()) for upload in files]
+    payloads = await read_bounded_uploads(files)
     count = await playground_service.upload_files(db, job_id, user, payloads)
     return {"message": f"Uploaded {count} file(s)", "queued": count}
 

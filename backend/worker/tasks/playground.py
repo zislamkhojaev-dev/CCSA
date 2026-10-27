@@ -160,6 +160,7 @@ def process_playground_file(self, file_id: int) -> None:
                     transcript,
                     custom_system_prompt=custom,
                     model=prepared_model,
+                    strict=True,
                     **prepared_kwargs,
                 )
             )

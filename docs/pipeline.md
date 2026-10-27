@@ -80,7 +80,7 @@ stateDiagram-v2
 {текст}
 ```
 
-6. OpenAI: `response_format` JSON Schema по ключам критериев
+6. OpenAI: Responses API + строгий `text.format` JSON Schema по ключам критериев (`store=false`)
 7. Сохранение `analysis_results` — **прежний вердикт удаляется**, чтобы повторный
    анализ не давал две строки на один звонок (иначе дашборд считает звонок дважды)
 8. Статус → `analyzed`

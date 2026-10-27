@@ -22,6 +22,7 @@
 | `VAL_NOT_FOUND` | 404 | Сущность не найдена |
 | `VAL_CONFLICT` | 409 | Конфликт состояния |
 | `IDEMPOTENCY_CONFLICT` | 409 | `Idempotency-Key` повторён с другим телом |
+| `IDEMPOTENCY_IN_PROGRESS` | 409 | Тот же ключ ещё выполняется; повторите запрос |
 | `JOB_IN_PROGRESS` | 409 | Звонок уже обрабатывается |
 | `JOB_NOT_READY` | 400 | Экспорт/отчёт ещё не готов |
 | `FEATURE_DISABLED` | 403 | Feature toggle выключен |

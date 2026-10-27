@@ -47,6 +47,9 @@ class JsonFormatter(logging.Formatter):
         }
         if record.exc_info:
             payload["exc_type"] = record.exc_info[0].__name__ if record.exc_info[0] else None
+            err = record.exc_info[1]
+            if err is not None:
+                payload["exc_message"] = redact(str(err))
         extra_params = getattr(record, "params", None)
         if extra_params is not None:
             payload["params"] = redact(extra_params)

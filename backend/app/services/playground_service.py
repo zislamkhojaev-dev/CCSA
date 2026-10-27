@@ -57,10 +57,14 @@ class PlaygroundService:
             id=job.id, status=job.status, scenario_id=job.scenario_id, created_at=job.created_at, files=[]
         )
 
-    async def upload_files(self, db: AsyncSession, job_id: int, user: User, files: list[tuple[str, bytes]]) -> int:
+    async def upload_files(self, db: AsyncSession, job_id: int, user: User, files: list[tuple]) -> int:
         job = await self._owned_job(db, job_id, user)
-        for filename, data in files:
-            key = self._storage.upload_bytes(data, "playground", filename or "audio.mp3")
+        for item in files:
+            filename, data = item[0], item[1]
+            content_type = item[2] if len(item) > 2 else "audio/mpeg"
+            key = self._storage.upload_bytes(
+                data, "playground", filename or "audio.mp3", content_type=content_type or "audio/mpeg"
+            )
             db.add(PlaygroundFile(job_id=job.id, filename=filename or "audio.mp3", storage_key=key, status="queued"))
         job.status = "pending"
         await db.flush()
